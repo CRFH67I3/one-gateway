@@ -39,10 +39,17 @@ env:
 
 jobs:
   build:
-    runs-on: macos-14
+    # XcodeGen 生成的是 Xcode 16 的工程格式（objectVersion 77），macos-14 上默认的
+    # Xcode 15 读不了会直接报 "future Xcode project file format (77)"。
+    runs-on: macos-15
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+
+      - name: Report toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
 
       - name: Resolve version from source
         id: version
