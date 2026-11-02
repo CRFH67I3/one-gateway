@@ -84,6 +84,12 @@ jobs:
           tar -xzf /tmp/support.tar.gz -C mobile/ios/Vendor
           test -d mobile/ios/Vendor/Python.xcframework
 
+      - name: Report support package layout
+        run: |
+          # 支持包内部分层随版本变过（lib-arm64/、lib/、Python.framework/lib/），
+          # 打出来备查，标准库定位失败时这一屏就是线索。
+          find mobile/ios/Vendor/Python.xcframework -maxdepth 3 -type d | head -40
+
       - name: Sync gateway core
         run: |
           chmod +x mobile/ios/scripts/sync-core.sh

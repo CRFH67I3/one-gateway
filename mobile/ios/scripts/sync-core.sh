@@ -52,24 +52,38 @@ if [ ! -f "$DEST_APP/certifi/cacert.pem" ] && command -v python3 >/dev/null 2>&1
         || echo "warning: certifi 安装失败，App 内 HTTPS 请求会校验失败" >&2
 fi
 
-# 标准库：从 python-app-support 的设备切片铺进 Resources/python/lib/。
-# 切片里 `lib/python3.13` 在 macOS 上是符号链接，指向同级的 `lib-arm64/python3.13`，
-# 这里用 pwd -P 跟随到真实目录再复制，避免把链接本身带进 bundle。
-if [ -d "$VENDOR" ]; then
-    SLICE="$VENDOR/ios-arm64"
-    if [ ! -d "$SLICE" ]; then
-        echo "error: $SLICE 不存在（XCFramework 结构不符合预期）" >&2
-        exit 1
-    fi
-    STDLIB=""
-    for candidate in "$SLICE"/lib-*/python3.* "$SLICE"/lib/python3.*; do
+# 在支持包里找标准库：python-app-support 每个版本的内部分层都略有出入
+# （lib-arm64/、lib/、Python.framework/lib/ 都出现过），所以按「先试已知路径、
+# 再全树搜 os.py」的顺序找，命中后统一用 pwd -P 解成真实目录。
+# $1 = 搜索根；输出命中的标准库目录（跟在符号链接后也认）。
+find_stdlib() {
+    for candidate in "$1"/lib-arm64/python3.* "$1"/lib/python3.* "$1"/python3.* \
+                     "$1"/Python.framework/lib/python3.*; do
         if [ -f "$candidate/os.py" ]; then
-            STDLIB=$(cd "$candidate" && pwd -P)
-            break
+            (cd "$candidate" && pwd -P)
+            return 0
         fi
     done
+    for mode in "" "-L"; do
+        hit=$(find $mode "$1" -name os.py 2>/dev/null \
+              | grep -v -e 'simulator' -e 'x86_64' -e '/site-packages/' \
+              | head -n 1)
+        if [ -n "$hit" ]; then
+            (cd "$(dirname "$hit")" && pwd -P)
+            return 0
+        fi
+    done
+    return 1
+}
+
+# 标准库：铺进 Resources/python/lib/<pythonX.Y>。
+if [ -d "$VENDOR" ]; then
+    SLICE="$VENDOR/ios-arm64"
+    [ -d "$SLICE" ] || SLICE="$VENDOR"
+    STDLIB=$(find_stdlib "$SLICE" || find_stdlib "$VENDOR" || true)
     if [ -z "$STDLIB" ]; then
-        echo "error: CPython stdlib (os.py) not found under $SLICE" >&2
+        echo "error: 在 $VENDOR 里找不到标准库（os.py），支持包结构可能变了：" >&2
+        find "$VENDOR" -maxdepth 4 -type d 2>/dev/null | head -40 >&2
         exit 1
     fi
     LIB_VER=$(basename "$STDLIB")          # python3.13
@@ -79,7 +93,7 @@ if [ -d "$VENDOR" ]; then
     if [ ! -f "$DEST_LIB/os.py" ]; then
         rm -rf "$DEST_LIB"
         cp -R "$STDLIB" "$DEST_LIB"
-        echo "installed CPython stdlib ($LIB_VER) -> Resources/python/lib/$LIB_VER"
+        echo "installed CPython stdlib ($LIB_VER) from $STDLIB -> Resources/python/lib/$LIB_VER"
     fi
     if [ ! -f "$DEST_LIB/os.py" ] || [ ! -f "$DEST_LIB/encodings/__init__.py" ]; then
         echo "error: 标准库不完整（$DEST_LIB）" >&2
