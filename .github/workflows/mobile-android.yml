@@ -1,0 +1,80 @@
+name: mobile-android
+
+# Android shell for the gateway.
+#
+# The gateway itself is the repository-root Python code (stdlib only); this job
+# only packages it into an APK with Chaquopy's CPython runtime. It therefore
+# rebuilds whenever the core, the panel, or the Android shell changes - a core
+# change must never ship an APK built from stale Python.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "wb_*.py"
+      - "dashboard.html"
+      - "mobile/**"
+      - ".github/workflows/mobile-android.yml"
+  pull_request:
+    paths:
+      - "wb_*.py"
+      - "dashboard.html"
+      - "mobile/**"
+      - ".github/workflows/mobile-android.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: mobile-android-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # AGP 8.7 needs JDK 17; Chaquopy needs a host Python whose minor version
+      # matches the embedded one (3.13) to assemble the pip requirements.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Syntax gate (gateway core + bridge)
+        run: |
+          python -m compileall -q wb_proxy.py wb_accounts.py wb_settings.py \
+            mobile/shared mobile/android/app/src/main/python
+
+      - name: Build APK
+        working-directory: mobile/android
+        run: gradle :app:assembleDebug :app:assembleRelease --stacktrace
+
+      - name: Report artifacts
+        run: |
+          ls -lh mobile/android/app/build/outputs/apk/*/*.apk
+          # The gateway core must be inside the APK, not only in the source tree.
+          unzip -l mobile/android/app/build/outputs/apk/release/*.apk \
+            | grep -q "assets/core/wb_proxy.py"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workbuddy-hub-android
+          path: mobile/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+
+      # Tag pushes attach the APK to the release that release.yml drafts.
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: mobile/android/app/build/outputs/apk/**/*.apk
+          fail_on_unmatched_files: false

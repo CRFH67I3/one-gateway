@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  App 内部用 http 访问 127.0.0.1 上的网关；没有这条例外，targetSdk 28+ 会直接拦掉。
+  上游（workbuddy.ai 等）仍然是 https，不受影响。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">workbuddy.ai</domain>
+    </domain-config>
+</network-security-config>

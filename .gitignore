@@ -25,7 +25,8 @@ logs/
 suite-logs/
 
 # 便携版内置运行时（仓库只保存纯源码，绿色包通过 Release 发布）
-python/
+# 锚定到仓库根目录：不加前导 / 会连 iOS 的 Resources/python（包内资源目录）一起忽略。
+/python/
 *.zip
 
 # 发布打包产物（release 工作流与 wrt/ 脚本的输出，只该出现在 Release 资产里）
@@ -57,3 +58,21 @@ desktop.ini
 
 # Local Docker Compose override
 docker-compose.override.yml
+
+# ---- 移动端（iOS / Android）----
+# 两端的网关核心都是从仓库根目录复制进去的构建产物，源头只有一份，绝不入库。
+mobile/android/app/src/main/assets/core/
+mobile/ios/WorkBuddyHub/Resources/python/*.py
+mobile/ios/WorkBuddyHub/Resources/python/dashboard.html
+mobile/ios/WorkBuddyHub/Resources/python/certifi/
+mobile/ios/WorkBuddyHub/Resources/python/*.dist-info/
+# Android 构建输出与本地 SDK 配置
+mobile/android/.gradle/
+mobile/android/build/
+mobile/android/app/build/
+mobile/android/local.properties
+# iOS 构建输出、生成的工程与下载的 Python 运行时（均由 CI 重建）
+mobile/ios/build/
+mobile/ios/Vendor/
+mobile/ios/*.xcodeproj/
+mobile/ios/*.ipa

@@ -1,0 +1,71 @@
+import Foundation
+
+/// 沙盒里的两个关键路径。
+///
+/// * `bundleCore`：只读包体内的 python 目录（随 App 一起打包，含 wb_*.py 与
+///   dashboard.html）；运行时会被 `wb_mobile_runtime` 同步到可写目录。
+/// * `data`：可写数据目录，账号、用量、模型目录缓存、日志都在这里，不随更新丢失。
+struct CorePaths {
+    let bundleCore: String
+    let data: String
+
+    static func resolve() -> CorePaths {
+        let manager = FileManager.default
+        let support = manager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let data = support.appendingPathComponent("data", isDirectory: true)
+        try? manager.createDirectory(at: data, withIntermediateDirectories: true)
+        let bundleCore = (Bundle.main.resourcePath ?? "") + "/python"
+        return CorePaths(bundleCore: bundleCore, data: data.path)
+    }
+}
+
+/// 外壳自己的开关（与电脑版的 settings.json 分开存）。
+/// 端口/局域网只影响「怎么监听」，账号与密钥仍然由网关自己管理。
+enum Settings {
+    private static let portKey = "hub.port"
+    private static let lanKey = "hub.lan"
+
+    static var port: Int {
+        get {
+            let stored = UserDefaults.standard.integer(forKey: portKey)
+            return stored == 0 ? 8788 : stored
+        }
+        set { UserDefaults.standard.set(newValue, forKey: portKey) }
+    }
+
+    static var lan: Bool {
+        get { UserDefaults.standard.bool(forKey: lanKey) }
+        set { UserDefaults.standard.set(newValue, forKey: lanKey) }
+    }
+}
+
+enum NetworkAddress {
+    /// 局域网模式下列出本机 IPv4，供通知/面板提示其它设备该填什么地址。
+    static func localIPv4() -> String? {
+        var address: String?
+        var pointer: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&pointer) == 0, let first = pointer else { return nil }
+        defer { freeifaddrs(pointer) }
+        for item in sequence(first: first, next: { $0.pointee.ifa_next }) {
+            let flags = Int32(item.pointee.ifa_flags)
+            let isUp = (flags & IFF_UP) != 0
+            let isLoopback = (flags & IFF_LOOPBACK) != 0
+            guard isUp, !isLoopback, item.pointee.ifa_addr.pointee.sa_family == UInt8(AF_INET) else {
+                continue
+            }
+            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            let result = getnameinfo(item.pointee.ifa_addr, socklen_t(item.pointee.ifa_addr.pointee.sa_len),
+                                     &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST)
+            if result == 0 {
+                let candidate = String(cString: host)
+                if candidate.hasPrefix("192.168.") || candidate.hasPrefix("10.")
+                    || candidate.hasPrefix("172.") {
+                    address = candidate
+                    break
+                }
+                if address == nil { address = candidate }
+            }
+        }
+        return address
+    }
+}

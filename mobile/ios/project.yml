@@ -1,0 +1,48 @@
+# XcodeGen 工程描述：用文本定义 iOS 工程，CI 里 `xcodegen generate` 出 .xcodeproj，
+# 避免把几千行的 pbxproj 二进制式文件塞进仓库、也避免合并冲突。
+name: WorkBuddyHub
+
+options:
+  bundleIdPrefix: com.workbuddy2api
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+    # preBuildScripts 要复制仓库里的网关核心，脚本沙箱必须关掉。
+    ENABLE_USER_SCRIPT_SANDBOXING: "NO"
+    CODE_SIGN_STYLE: Automatic
+    MARKETING_VERSION: "1.10.1"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_BITCODE: "NO"
+
+targets:
+  WorkBuddyHub:
+    type: application
+    platform: iOS
+    sources:
+      - path: WorkBuddyHub/Sources
+      # 文件夹引用：整个目录原样进包，运行时按 Bundle.main.resourcePath + "/python" 找。
+      - path: WorkBuddyHub/Resources/python
+        type: folder
+        buildPhase: resources
+    dependencies:
+      # BeeWare python-app-support 产出的 XCFramework（CI 下载，不入库）。
+      - framework: Vendor/Python.xcframework
+        embed: true
+        codeSign: true
+    preBuildScripts:
+      - name: Sync gateway core
+        basedOnDependencyAnalysis: false
+        script: |
+          "$SRCROOT/scripts/sync-core.sh"
+    settings:
+      base:
+        INFOPLIST_FILE: WorkBuddyHub/Info.plist
+        GENERATE_INFOPLIST_FILE: "NO"
+        PRODUCT_BUNDLE_IDENTIFIER: com.workbuddy2api.hub
+        PRODUCT_NAME: WorkBuddyHub
+        TARGETED_DEVICE_FAMILY: "1,2"

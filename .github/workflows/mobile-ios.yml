@@ -1,0 +1,145 @@
+name: mobile-ios
+
+# iOS shell for the gateway.
+#
+# iOS has no system Python, so the interpreter is linked into the app: the
+# XCFramework comes from BeeWare's python-app-support release and ships as
+# Python.framework inside the bundle (PYTHONHOME points at it at runtime).
+#
+# The produced IPA is intentionally *unsigned*: signing needs the maintainer's
+# team ID and certificate, which must not live in this repository. Sideload
+# tools (AltStore/Sideloadly) or a local Xcode build with a team can sign it.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "wb_*.py"
+      - "dashboard.html"
+      - "mobile/**"
+      - ".github/workflows/mobile-ios.yml"
+  pull_request:
+    paths:
+      - "wb_*.py"
+      - "dashboard.html"
+      - "mobile/**"
+      - ".github/workflows/mobile-ios.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: mobile-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  # Pinned support package: bump both values together when moving Python.
+  PYTHON_SUPPORT_TAG: "3.13-b18"
+  PYTHON_SUPPORT_ASSET: "Python-3.13-iOS-support.b18.tar.gz"
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version from source
+        id: version
+        run: |
+          VERSION=$(grep -oE 'server_version = "wb-proxy/[0-9.]+"' wb_proxy.py \
+            | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
+          echo "value=${VERSION:-0.0.0}" >> "$GITHUB_OUTPUT"
+
+      - name: Syntax gate (gateway core + bridge)
+        run: |
+          python3 -m compileall -q wb_proxy.py wb_accounts.py wb_settings.py \
+            mobile/shared mobile/ios/WorkBuddyHub/PythonBridge
+
+      # ~200MB download; cache it so repeat builds skip GitHub Releases.
+      - name: Fetch embedded CPython
+        uses: actions/cache@v4
+        id: support-cache
+        with:
+          path: mobile/ios/Vendor
+          key: python-ios-support-${{ env.PYTHON_SUPPORT_TAG }}
+
+      - name: Download python-app-support
+        if: steps.support-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p mobile/ios/Vendor
+          URL="https://github.com/beeware/Python-Apple-support/releases/download/${PYTHON_SUPPORT_TAG}/${PYTHON_SUPPORT_ASSET}"
+          curl -sSL -o /tmp/support.tar.gz "$URL"
+          tar -xzf /tmp/support.tar.gz -C mobile/ios/Vendor
+          test -d mobile/ios/Vendor/Python.xcframework
+
+      - name: Sync gateway core
+        run: |
+          chmod +x mobile/ios/scripts/sync-core.sh
+          mobile/ios/scripts/sync-core.sh
+          ls mobile/ios/WorkBuddyHub/Resources/python | head -5
+
+      # iOS 上 OpenSSL 没有系统 CA 路径，上游 HTTPS 必须靠随包的证书束。
+      - name: Install CA bundle
+        run: |
+          set -euo pipefail
+          DEST=mobile/ios/WorkBuddyHub/Resources/python
+          python3 -m pip install --quiet --disable-pip-version-check --target "$DEST" certifi
+          test -f "$DEST/certifi/cacert.pem"
+
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          cd mobile/ios
+          xcodegen generate
+          ls -d WorkBuddyHub.xcodeproj
+
+      - name: Build (unsigned)
+        run: |
+          set -euo pipefail
+          cd mobile/ios
+          xcodebuild \
+            -project WorkBuddyHub.xcodeproj \
+            -scheme WorkBuddyHub \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath build \
+            MARKETING_VERSION="${{ steps.version.outputs.value }}" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Verify bundle contents
+        run: |
+          set -euo pipefail
+          APP="mobile/ios/build/Build/Products/Release-iphoneos/WorkBuddyHub.app"
+          # The Python core and the interpreter must both be inside the bundle,
+          # otherwise the app launches into "missing Python.framework".
+          test -f "$APP/python/wb_proxy.py"
+          test -f "$APP/python/dashboard.html"
+          test -d "$APP/Frameworks/Python.framework"
+          du -sh "$APP"
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          cd mobile/ios
+          APP="build/Build/Products/Release-iphoneos/WorkBuddyHub.app"
+          rm -rf build/ipa && mkdir -p build/ipa/Payload
+          cp -R "$APP" build/ipa/Payload/
+          cd build/ipa
+          zip -qry "../../WorkBuddyHub-${{ steps.version.outputs.value }}-unsigned.ipa" Payload
+          ls -lh "../../WorkBuddyHub-${{ steps.version.outputs.value }}-unsigned.ipa"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workbuddy-hub-ios
+          path: mobile/ios/*.ipa
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: mobile/ios/*.ipa
+          fail_on_unmatched_files: false

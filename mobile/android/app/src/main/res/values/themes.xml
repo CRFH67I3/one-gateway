@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 面板是浅色页面，外壳跟着用浅色主题，避免 WebView 首帧闪黑。 -->
+    <style name="Theme.Hub" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@color/header_bg</item>
+        <item name="android:navigationBarColor">@color/header_bg</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:colorAccent">@color/colorPrimary</item>
+        <item name="android:windowBackground">@color/page_bg</item>
+    </style>
+</resources>

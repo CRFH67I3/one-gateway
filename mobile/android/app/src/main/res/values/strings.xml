@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">WorkBuddy 网关</string>
+    <string name="menu_more">更多</string>
+
+    <!-- 状态栏 -->
+    <string name="status_running">运行中 · 127.0.0.1:%1$d · 账号 %2$d/%3$d</string>
+    <string name="status_starting">正在启动网关…</string>
+    <string name="status_stopped">网关已停止</string>
+    <string name="overlay_idle">网关当前没有运行。\n启动后这里会显示与电脑版一致的管理面板。</string>
+    <string name="overlay_starting">正在启动，首次会初始化账号池与模型目录…</string>
+    <string name="overlay_failed">面板加载失败：%1$s</string>
+    <string name="overlay_action">启动网关</string>
+
+    <!-- 通知 -->
+    <string name="notif_title">WorkBuddy 网关</string>
+    <string name="notif_channel">网关运行状态</string>
+    <string name="notif_channel_desc">常驻通知，用于保持网关在后台可用</string>
+    <string name="notif_starting">正在启动…</string>
+    <string name="notif_running">监听 127.0.0.1:%1$d</string>
+    <string name="notif_accounts">可用账号 %1$d/%2$d</string>
+    <string name="notif_failed">启动失败</string>
+    <string name="action_stop">停止</string>
+
+    <!-- 菜单 -->
+    <string name="menu_toggle">启动 / 停止</string>
+    <string name="menu_restart">重启网关</string>
+    <string name="menu_settings">设置</string>
+    <string name="menu_import">导入账号凭证</string>
+    <string name="menu_copy">复制 API 地址</string>
+    <string name="menu_log">查看启动日志</string>
+    <string name="menu_about">关于</string>
+
+    <string name="toast_stopped">网关已停止</string>
+    <string name="toast_starting">正在启动…</string>
+    <string name="toast_restarting">正在重启…</string>
+    <string name="toast_copied">已复制：%1$s</string>
+
+    <!-- 设置 -->
+    <string name="settings_port">监听端口（客户端填这个端口）</string>
+    <string name="settings_lan">允许局域网访问（自动生成 API Key）</string>
+    <string name="settings_autostart">打开 App 时自动启动网关</string>
+    <string name="settings_hint">修改端口或局域网开关会重启网关。面板默认密码 admin，登录后请立即修改；账号登录、配额与模型配置都在面板里完成，与电脑版完全一致。</string>
+    <string name="settings_bad_port">端口需在 1024–65535 之间</string>
+
+    <!-- 导入与日志 -->
+    <string name="import_running">正在导入凭证…</string>
+    <string name="import_ok">导入成功，当前共 %1$d 个账号</string>
+    <string name="import_failed">导入失败：%1$s</string>
+    <string name="log_empty">暂无日志</string>
+
+    <string name="about_body">版本 %1$s\n\n手机上的 WorkBuddy 多账号反向代理网关：网关本体与电脑版是同一套 Python 代码，账号、配额、模型目录、用量统计全部在设备本地处理，不经过第三方服务器。\n\n面板地址：http://127.0.0.1:端口/</string>
+</resources>

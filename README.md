@@ -208,6 +208,23 @@ python tests/run_all.py realm      # 只跑名字里含 realm 的
 
 ---
 
+### 8. 手机端（iOS / Android）
+
+网关本体是纯标准库 Python，因此手机端没有另写一套逻辑：**同一份 `wb_*.py` 与
+`dashboard.html` 原样打包进 App**，由原生外壳托管（Android 用 Chaquopy 内嵌
+CPython 3.13，iOS 链接 BeeWare `python-app-support` 的 `Python.framework`）。
+面板、账号池、配额、模型目录与电脑版完全同源，PC 版升级即移动端升级。
+
+| 平台 | 形态 | 关键适配 |
+|---|---|---|
+| Android | 前台服务常驻 + 通知栏 | 息屏/切后台链路不断；通知里直接给出 `127.0.0.1:8788/v1` 与局域网地址 |
+| iOS | 前台运行 + 优雅让位 | 进后台 20 秒宽限后关闭监听，回前台自动恢复（iOS 不允许后台常驻监听） |
+
+- 构建产物由 `.github/workflows/mobile-android.yml`（APK）与 `mobile-ios.yml`（未签名 IPA）自动产出，也支持本地构建；
+- 详细原理、目录结构、构建命令与已知限制见 **[`mobile/README.md`](mobile/README.md)**。
+
+---
+
 ## 二、核心特性
 
 ### 1. 模型列表对齐官方桌面端
@@ -509,6 +526,7 @@ export ANTHROPIC_API_KEY="你在看板设置中添加并绑定的API_Key"
 
 <!-- 发版时：把下面的 Unreleased 段落整理成新版本号（## vX.Y.Z），整体移入 docs/CHANGELOG.md 顶部 -->
 
+- **手机端移植（iOS / Android）**：网关本体（`wb_*.py` + `dashboard.html`）原样打包进 App，不另写一套逻辑——Android 用 Chaquopy 内嵌 CPython 3.13、前台服务常驻（息屏不断链路），iOS 链接 BeeWare `python-app-support` 的 `Python.framework`、前台运行并在进后台 20 秒后关闭监听、回前台自动恢复。两端共用 `mobile/shared/wb_mobile_runtime.py` 处理沙盒目录、核心同步、证书与启停；面板由 WebView / WKWebView 直接加载 `127.0.0.1:8788`，与电脑版同源。新增 `mobile-{android,ios}.yml` 两条 CI（APK / 未签名 IPA）。详见 [`mobile/README.md`](mobile/README.md)。 / **Mobile port (iOS / Android)**: the gateway itself (`wb_*.py` + `dashboard.html`) ships inside the app unchanged rather than being reimplemented — Android embeds CPython 3.13 through Chaquopy and keeps it alive in a foreground service (the link survives screen-off), while iOS links BeeWare python-app-support's `Python.framework`, runs in the foreground and stops listening 20 s after backgrounding, resuming on return. Both shells share `mobile/shared/wb_mobile_runtime.py` for sandbox paths, core sync, trust store and start/stop; the panel is loaded straight from `127.0.0.1:8788` in WebView / WKWebView, so mobile and desktop run the same UI. Two new CI workflows build the APK and an unsigned IPA. See [`mobile/README.md`](mobile/README.md).
 - **v1.10.1 发布**：429 响应带上绝对恢复时刻（#720）、工具名称校验丢弃非法条目防 11133（#726）、CodeArts 发送会话头修掉并发上限与排队（#723）、代理槽账号密码认证与格式规整（#648）。完整变更、验证范围与已知限制见 **[docs/CHANGELOG.md](docs/CHANGELOG.md#v1101)**；下一版的改动继续写在本段。
 - **v1.10.0 发布**：集成 CodeArts 原生第三出口（#712/#715）、请求体上限面板动态调节（#709/#714）、Key 账号选择器搜索备注（#708/#717）、今日活动无记录状态优化（#706/#716）、最近请求跨天日期显示（#700/#713）与设置卡片重复修复（#710）。完整变更、验证范围与已知限制见 **[docs/CHANGELOG.md](docs/CHANGELOG.md#v1100)**；下一版的改动继续写在本段。
 - **v1.9.2 发布**：数据看板轮询防慢堆叠（#656）、更新卡片操作提示优化（#696）、密码组件环境异常明确报错（#658），详见 [更新记录](docs/CHANGELOG.md#v192)。

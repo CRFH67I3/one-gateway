@@ -1,0 +1,5 @@
+# 此目录由构建脚本填充
+#
+# `mobile/ios/scripts/sync-core.sh` 会把仓库根目录的网关核心（wb_*.py +
+# dashboard.html）复制到这里，随 App 一起打包，运行期再同步进沙盒。
+# 目录本身必须存在，否则 XcodeGen 生成工程时找不到这个「文件夹引用」。
