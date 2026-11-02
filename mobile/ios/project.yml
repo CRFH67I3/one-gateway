@@ -7,6 +7,10 @@ options:
   deploymentTarget:
     iOS: "15.0"
   createIntermediateGroups: true
+  # 固定工程格式为 Xcode 15.3（objectVersion 56）：默认的 xcode16_0 会写
+  # objectVersion 77，Xcode 15 打不开（"future Xcode project file format"）。
+  # 我们只用到 iOS 15 时代的能力，没有理由把构建工具链绑死在 Xcode 16 上。
+  projectFormat: xcode15_3
 
 settings:
   base:

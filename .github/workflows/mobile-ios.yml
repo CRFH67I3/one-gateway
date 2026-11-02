@@ -39,9 +39,10 @@ env:
 
 jobs:
   build:
-    # XcodeGen 生成的是 Xcode 16 的工程格式（objectVersion 77），macos-14 上默认的
-    # Xcode 15 读不了会直接报 "future Xcode project file format (77)"。
-    runs-on: macos-15
+    # 工程按 xcode15_3 格式生成（见 mobile/ios/project.yml），Xcode 15 就能读；
+    # macos-14 的 arm64 机器比 macos-15 更容易排到（macos-15 长期报
+    # "The job was not acquired by Runner of type hosted"）。
+    runs-on: macos-14
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
