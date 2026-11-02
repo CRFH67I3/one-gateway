@@ -52,10 +52,13 @@ if [ ! -f "$DEST_APP/certifi/cacert.pem" ] && command -v python3 >/dev/null 2>&1
         || echo "warning: certifi 安装失败，App 内 HTTPS 请求会校验失败" >&2
 fi
 
-# 在支持包里找标准库：python-app-support 每个版本的内部分层都略有出入
-# （lib-arm64/、lib/、Python.framework/lib/ 都出现过），所以按「先试已知路径、
-# 再全树搜 os.py」的顺序找，命中后统一用 pwd -P 解成真实目录。
-# $1 = 搜索根；输出命中的标准库目录（跟在符号链接后也认）。
+# 在支持包里找标准库：python-app-support 每个版本的内部分层都略有出入，所以按
+# 「先试已知路径、再全树搜 os.py」的顺序找，命中后统一用 pwd -P 解成真实目录。
+# 3.13-b18 的实际布局：
+#   Python.xcframework/lib/python3.13              ← 各平台共享的标准库（就用这份）
+#   Python.xcframework/ios-arm64/Python.framework  ← 设备解释器
+#   Python.xcframework/ios-arm64_x86_64-simulator/ ← 模拟器切片
+# $1 = 搜索根；输出命中的标准库目录。
 find_stdlib() {
     for candidate in "$1"/lib-arm64/python3.* "$1"/lib/python3.* "$1"/python3.* \
                      "$1"/Python.framework/lib/python3.*; do
@@ -80,7 +83,9 @@ find_stdlib() {
 if [ -d "$VENDOR" ]; then
     SLICE="$VENDOR/ios-arm64"
     [ -d "$SLICE" ] || SLICE="$VENDOR"
-    STDLIB=$(find_stdlib "$SLICE" || find_stdlib "$VENDOR" || true)
+    # 共享标准库优先（顶层 lib/），其次设备切片自带的副本，最后全树兜底。
+    STDLIB=$(find_stdlib "$VENDOR/lib" || find_stdlib "$SLICE" \
+             || find_stdlib "$VENDOR" || true)
     if [ -z "$STDLIB" ]; then
         echo "error: 在 $VENDOR 里找不到标准库（os.py），支持包结构可能变了：" >&2
         find "$VENDOR" -maxdepth 4 -type d 2>/dev/null | head -40 >&2

@@ -56,20 +56,12 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.workbuddy2api.hub
         PRODUCT_NAME: WorkBuddyHub
         TARGETED_DEVICE_FAMILY: "1,2"
-        # CPython 的 C API 通过桥接头暴露，避免依赖 framework 是否带 Clang module map
-        # （python-app-support 的 Python.framework 里没有 Modules/，`import Python` 会报
-        # "no such module"）。
+        # CPython 的 C API 通过桥接头暴露，走官方文档给的 `#include <Python/Python.h>`
+        # 路径，不依赖 Swift 能否 `import Python`。
         SWIFT_OBJC_BRIDGING_HEADER: WorkBuddyHub/Sources/WorkBuddyHub-Bridging-Header.h
-        # 桥接头里写的是 <Python/Python.h>（framework 形式），需要 -F 指到
-        # Python.framework 的父目录，也就是 XCFramework 里对应平台切片。
-        FRAMEWORK_SEARCH_PATHS:
-          - $(inherited)
-          - $(PROJECT_DIR)/Vendor/Python.xcframework/ios-arm64
-          - $(PROJECT_DIR)/Vendor/Python.xcframework/ios-arm64_x86_64-simulator
-          - $(PROJECT_DIR)/Vendor/Python.xcframework/ios-arm64-simulator
-          - $(PROJECT_DIR)/Vendor/Python.xcframework/ios-x86_64-simulator
-        HEADER_SEARCH_PATHS:
-          - $(inherited)
-          - $(PROJECT_DIR)/Vendor/Python.xcframework/ios-arm64/Python.framework/Headers
+        # 注意：不要再手动加 Python.xcframework 的 FRAMEWORK_SEARCH_PATHS。
+        # Xcode 会把切片里的 Python.framework 复制到 $(BUILT_PRODUCTS_DIR) 并自动加进
+        # 搜索路径；再指一份 Vendor 下的副本会让 clang 同时看到两个
+        # Python.framework/Headers/module.modulemap，报 "redefinition of module 'Python'"。
         # framework 头里用引号 include 同名头文件，iOS SDK 默认对此告警，关掉。
         CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER: "NO"
