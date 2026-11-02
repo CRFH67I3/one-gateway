@@ -55,6 +55,7 @@ desktop.ini
 .vscode/
 .idea/
 .codebuddy/
+.workbuddy/
 
 # Local Docker Compose override
 docker-compose.override.yml
@@ -62,10 +63,11 @@ docker-compose.override.yml
 # ---- 移动端（iOS / Android）----
 # 两端的网关核心都是从仓库根目录复制进去的构建产物，源头只有一份，绝不入库。
 mobile/android/app/src/main/assets/core/
-mobile/ios/WorkBuddyHub/Resources/python/*.py
-mobile/ios/WorkBuddyHub/Resources/python/dashboard.html
-mobile/ios/WorkBuddyHub/Resources/python/certifi/
-mobile/ios/WorkBuddyHub/Resources/python/*.dist-info/
+# iOS 包内资源：app/ 是核心代码，python/ 是 CPython 标准库，均由 sync-core.sh 生成。
+mobile/ios/WorkBuddyHub/Resources/app/*
+!mobile/ios/WorkBuddyHub/Resources/app/.gitkeep
+mobile/ios/WorkBuddyHub/Resources/python/*
+!mobile/ios/WorkBuddyHub/Resources/python/.gitkeep
 # Android 构建输出与本地 SDK 配置
 mobile/android/.gradle/
 mobile/android/build/

@@ -1,11 +1,12 @@
 import Foundation
-import Python
 
 /// 内嵌 CPython 的桥接层。
 ///
 /// iOS 上不存在「另起一个 python 进程」这种选项（App Store 禁止下载/派生子进程
 /// 执行代码），所以解释器必须链接进 App：`Python.xcframework` 由 CI 从 BeeWare
-/// 的 python-app-support 下载，随包嵌入，`PYTHONHOME` 指向 `Python.framework`。
+/// 的 python-app-support 下载，随包嵌入到 `Frameworks/Python.framework`；
+/// 标准库与业务代码则由 `scripts/sync-core.sh` 铺进 `Resources/python` 与
+/// `Resources/app`，运行时通过 `PYTHONHOME` / `PYTHONPATH` 接上。
 ///
 /// 调用约定与 Android 侧保持一致：动作名 + 一个 JSON 字符串参数，返回值也是
 /// JSON 字符串，外壳只负责解析展示。
@@ -14,11 +15,13 @@ final class PyBridge {
 
     enum BridgeError: LocalizedError {
         case missingFramework
+        case missingStdlib
         case notInitialized
 
         var errorDescription: String? {
             switch self {
             case .missingFramework: return "未找到嵌入的 Python.framework"
+            case .missingStdlib: return "包内缺少 Python 标准库（Resources/python/lib/python3.x）"
             case .notInitialized: return "Python 解释器尚未初始化"
             }
         }
@@ -28,30 +31,58 @@ final class PyBridge {
     private var initialized = false
 
     /// 初始化解释器。必须在调用任何 Python 动作之前完成，且只做一次。
+    ///
+    /// 环境变量按 CPython 官方文档《Using Python on iOS》第 8 步配置：
+    /// * `PYTHONHOME` → 包内 `python/`（标准库在它的 `lib/python3.13` 下，
+    ///   getpath 把 PYTHONHOME 当 prefix，只认 `prefix/lib/pythonX.Y`）；
+    /// * `PYTHONPATH` → 标准库目录 + `lib-dynload` + 包内 `app/`（网关核心与桥接层）。
+    ///
+    /// 注意 `PYTHONHOME` **不是** `Python.framework`：framework 自带的是解释器本体，
+    /// 标准库是我们按官方 `install_python` 的做法铺进 Resources 的，两者分工不同。
     func bootstrap(corePath: String) throws {
         lock.lock()
         defer { lock.unlock() }
         if initialized { return }
 
-        guard let frameworks = Bundle.main.privateFrameworksPath else {
-            throw BridgeError.missingFramework
+        let resources = Bundle.main.resourcePath ?? ""
+        let pythonHome = resources + "/python"
+        guard let stdlib = Self.locateStdlib(pythonHome) else {
+            throw BridgeError.missingStdlib
         }
-        let home = frameworks + "/Python.framework"
-        guard FileManager.default.fileExists(atPath: home) else {
+        guard let frameworks = Bundle.main.privateFrameworksPath,
+              FileManager.default.fileExists(atPath: frameworks + "/Python.framework") else {
             throw BridgeError.missingFramework
         }
 
-        setenv("PYTHONHOME", home, 1)
-        setenv("PYTHONPATH", corePath, 1)
+        let dynload = stdlib + "/lib-dynload"
+        setenv("PYTHONHOME", pythonHome, 1)
+        setenv("PYTHONPATH", [stdlib, dynload, corePath].joined(separator: ":"), 1)
         setenv("PYTHONDONTWRITEBYTECODE", "1", 1)
         setenv("PYTHONUNBUFFERED", "1", 1)
+        setenv("PYTHONUTF8", "1", 1)
 
-        // 0 = 不安装信号处理器：iOS 的信号语义与桌面不同，装了反而干扰系统。
+        // 0 = 不安装信号处理器：iOS 没有终端，信号语义交给系统，
+        // 装了只会干扰系统自己的 SIGTERM/SIGINT 处理。
         Py_InitializeEx(0)
         // 网关跑在自己的 Python 线程里，主线程交还给 iOS 主循环；
         // 此后每次调用都必须 PyGILState_Ensure / Release。
         _ = PyEval_SaveThread()
         initialized = true
+    }
+
+    /// 在包内 `python/lib/` 下找 `python3.x`（取最高版本，且必须含 os.py）。
+    private static func locateStdlib(_ pythonHome: String) -> String? {
+        let libDir = pythonHome + "/lib"
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: libDir) else {
+            return nil
+        }
+        for name in entries.sorted(by: >) where name.hasPrefix("python3.") {
+            let candidate = libDir + "/" + name
+            if FileManager.default.fileExists(atPath: candidate + "/os.py") {
+                return candidate
+            }
+        }
+        return nil
     }
 
     /// 调用 `wb_hub_ios.<function>(payloadJSON)`，返回解析后的字典。

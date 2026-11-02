@@ -1,0 +1,8 @@
+这个目录在构建时由 mobile/ios/scripts/sync-core.sh 填充（不入库）：
+
+  app/wb_*.py        PC 版网关核心（唯一真身在仓库根目录）
+  app/dashboard.html 控制面板
+  app/wb_hub_ios.py  Swift → Python 桥接层
+  app/certifi/       随包的根证书束（iOS 没有系统 CA 路径）
+
+包内路径 Resources/app，运行时通过 PYTHONPATH 加入 sys.path。

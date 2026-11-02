@@ -20,14 +20,17 @@ mobile/
 │   └── app/build.gradle.kts         # 版本号从 wb_proxy.py 解析，核心同步任务
 └── ios/                         # Swift 外壳 + 内嵌 Python.framework
     ├── project.yml                  # XcodeGen 工程描述
-    ├── scripts/sync-core.sh         # 复制核心 + 安装 certifi
+    ├── scripts/sync-core.sh         # 复制核心 + 铺标准库 + 安装 certifi
     ├── WorkBuddyHub/Sources/
-    │   ├── PyBridge.swift           # CPython C API 桥（GIL、PYTHONHOME）
+    │   ├── PyBridge.swift           # CPython C API 桥（GIL、PYTHONHOME/PYTHONPATH）
     │   ├── RootViewController.swift  # WKWebView 面板 + 前后台让位
     │   ├── CorePaths.swift          # 沙盒路径 / 外壳开关 / 局域网地址
+    │   ├── WorkBuddyHub-Bridging-Header.h  # #include <Python/Python.h>
     │   └── AppDelegate.swift
     ├── WorkBuddyHub/PythonBridge/wb_hub_ios.py
-    └── WorkBuddyHub/Resources/python/  # 构建时生成（不入库）
+    └── WorkBuddyHub/Resources/       # 构建时生成（不入库）
+        ├── app/                      # 核心代码 + 桥接层 + certifi → PYTHONPATH
+        └── python/lib/python3.13/    # CPython 标准库 → PYTHONHOME
 ```
 
 ## 为什么是「内嵌 Python」而不是重写
@@ -38,7 +41,20 @@ mobile/
 
 - Android：Chaquopy 16.1 + CPython 3.13（`libpython3.13.so` + OpenSSL + sqlite3）；
 - iOS：BeeWare [python-app-support](https://github.com/beeware/Python-Apple-support)
-  的 `Python.xcframework`，以 `Python.framework` 形式随包嵌入，`PYTHONHOME` 指过去。
+  的 `Python.xcframework`，以 `Python.framework` 形式随包嵌入。
+
+包内布局照 CPython 官方 [Using Python on iOS](https://docs.python.org/3/using/ios.html)
+的 `install_python` 约定，**这个形状不能改**：
+
+| 包内路径 | 内容 | 用途 |
+|---|---|---|
+| `app/` | `wb_*.py`、`dashboard.html`、`wb_hub_ios.py`、`certifi/` | `PYTHONPATH` |
+| `python/lib/python3.13/`（含 `lib-dynload`） | CPython 标准库 | `PYTHONHOME` |
+| `Frameworks/Python.framework` | 解释器本体（XCFramework 切片） | 链接 + 嵌入 |
+
+标准库必须落在 `python/lib/pythonX.Y` 这一层：CPython 的 getpath 把 `PYTHONHOME`
+当 prefix、只认 `prefix/lib/pythonX.Y`。平铺在 `Resources/python` 下解释器能起来，
+但一 import 就报 `No module named 'encodings'`。
 
 面板同理：`dashboard.html` 是「同源静态页 + JSON 接口」，WebView 直接打开
 `http://127.0.0.1:8788/` 就等于移植了全部界面与交互，面板以后加功能 App 不用改。
@@ -79,7 +95,7 @@ gradle :app:assembleDebug        # 或 :app:assembleRelease
 ```bash
 # 需要 macOS + Xcode；CI 用 macos-14 runner
 cd mobile/ios
-./scripts/sync-core.sh                       # 复制核心 + 安装 certifi
+./scripts/sync-core.sh                       # 复制核心 + 铺标准库 + 安装 certifi
 brew install xcodegen && xcodegen generate   # 生成 WorkBuddyHub.xcodeproj
 # Vendor/Python.xcframework 需先下载（CI 会自动做）：
 #   https://github.com/beeware/Python-Apple-support/releases/download/3.13-b18/Python-3.13-iOS-support.b18.tar.gz
@@ -99,9 +115,9 @@ open WorkBuddyHub.xcodeproj                  # 选自己的 Team 后可真机运
 | `.github/workflows/mobile-ios.yml` | 同上 | `workbuddy-hub-ios`（未签名 IPA） |
 
 两条流水线都会先做语法门禁（`compileall`）并断言**核心确实进了包**
-（APK 里查 `assets/core/wb_proxy.py`，IPA 里查 `python/wb_proxy.py` 与
-`Frameworks/Python.framework`），避免打出一个「壳在、内核不在」的包。
-打 `v*` tag 时产物会附加到 release 草稿。
+（APK 里查 `assets/core/wb_proxy.py`，IPA 里查 `app/wb_proxy.py`、
+`python/lib/python3.*/os.py` 与 `Frameworks/Python.framework`），
+避免打出一个「壳在、内核不在」的包。打 `v*` tag 时产物会附加到 release 草稿。
 
 ## 已知限制
 

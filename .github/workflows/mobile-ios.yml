@@ -4,7 +4,9 @@ name: mobile-ios
 #
 # iOS has no system Python, so the interpreter is linked into the app: the
 # XCFramework comes from BeeWare's python-app-support release and ships as
-# Python.framework inside the bundle (PYTHONHOME points at it at runtime).
+# Python.framework inside the bundle. The standard library is laid out by
+# scripts/sync-core.sh under Resources/python/lib/python3.x (PYTHONHOME) and the
+# app code under Resources/app (PYTHONPATH), per CPython's iOS guide.
 #
 # The produced IPA is intentionally *unsigned*: signing needs the maintainer's
 # team ID and certificate, which must not live in this repository. Sideload
@@ -86,13 +88,15 @@ jobs:
         run: |
           chmod +x mobile/ios/scripts/sync-core.sh
           mobile/ios/scripts/sync-core.sh
-          ls mobile/ios/WorkBuddyHub/Resources/python | head -5
+          ls mobile/ios/WorkBuddyHub/Resources/app | head -5
+          # 标准库必须落在 python/lib/pythonX.Y 这一层，否则运行时 import 全失败。
+          ls -d mobile/ios/WorkBuddyHub/Resources/python/lib/python3.*
 
       # iOS 上 OpenSSL 没有系统 CA 路径，上游 HTTPS 必须靠随包的证书束。
       - name: Install CA bundle
         run: |
           set -euo pipefail
-          DEST=mobile/ios/WorkBuddyHub/Resources/python
+          DEST=mobile/ios/WorkBuddyHub/Resources/app
           python3 -m pip install --quiet --disable-pip-version-check --target "$DEST" certifi
           test -f "$DEST/certifi/cacert.pem"
 
@@ -121,10 +125,14 @@ jobs:
         run: |
           set -euo pipefail
           APP="mobile/ios/build/Build/Products/Release-iphoneos/WorkBuddyHub.app"
-          # The Python core and the interpreter must both be inside the bundle,
-          # otherwise the app launches into "missing Python.framework".
-          test -f "$APP/python/wb_proxy.py"
-          test -f "$APP/python/dashboard.html"
+          # 三件套缺一不可：桥接代码/面板在 app/，标准库在 python/lib/，
+          # 解释器本体在 Frameworks/。少任何一个都是启动即崩。
+          test -f "$APP/app/wb_proxy.py"
+          test -f "$APP/app/wb_hub_ios.py"
+          test -f "$APP/app/dashboard.html"
+          test -f "$APP/app/certifi/cacert.pem"
+          ls -d "$APP"/python/lib/python3.*/os.py >/dev/null
+          ls -d "$APP"/python/lib/python3.*/encodings/__init__.py >/dev/null
           test -d "$APP/Frameworks/Python.framework"
           du -sh "$APP"
 

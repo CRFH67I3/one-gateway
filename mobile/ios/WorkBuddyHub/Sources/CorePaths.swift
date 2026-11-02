@@ -2,9 +2,13 @@ import Foundation
 
 /// 沙盒里的两个关键路径。
 ///
-/// * `bundleCore`：只读包体内的 python 目录（随 App 一起打包，含 wb_*.py 与
-///   dashboard.html）；运行时会被 `wb_mobile_runtime` 同步到可写目录。
+/// * `bundleCore`：只读包体内的 app 目录（随 App 一起打包，含 wb_*.py 与
+///   dashboard.html，同时也是 PYTHONPATH）；运行时会被 `wb_mobile_runtime`
+///   同步到可写目录。
 /// * `data`：可写数据目录，账号、用量、模型目录缓存、日志都在这里，不随更新丢失。
+///
+/// 标准库不在 `bundleCore` 里：它在包内 `python/`（PYTHONHOME），由 `PyBridge`
+/// 自行按 `Bundle.main.resourcePath` 定位，这里不需要参与。
 struct CorePaths {
     let bundleCore: String
     let data: String
@@ -14,7 +18,7 @@ struct CorePaths {
         let support = manager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let data = support.appendingPathComponent("data", isDirectory: true)
         try? manager.createDirectory(at: data, withIntermediateDirectories: true)
-        let bundleCore = (Bundle.main.resourcePath ?? "") + "/python"
+        let bundleCore = (Bundle.main.resourcePath ?? "") + "/app"
         return CorePaths(bundleCore: bundleCore, data: data.path)
     }
 }
