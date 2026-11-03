@@ -48,7 +48,7 @@ android {
     productFlavors {
         create("arm64") {
             dimension = "abi"
-            // 后缀进 versionName（关于对话框会显示成 1.10.4-arm64），
+            // 后缀进 versionName（关于对话框会显示成 1.10.7-arm64），
             // 装上之后能一眼确认手里这个包是给真机还是给模拟器的。
             versionNameSuffix = "-arm64"
             ndk { abiFilters += "arm64-v8a" }

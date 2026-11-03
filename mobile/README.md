@@ -152,7 +152,7 @@ gradle :app:assembleDebug        # 或 :app:assembleRelease
 - 因此 `ndk.abiFilters` **只能写在 flavor 里**：它与 `defaultConfig` 是取并集，
   留在 `defaultConfig` 会让两个 flavor 都拿到两个 ABI，拆包白做。
 - 合并后的包从 34.7 MB 降到约 23 MB（省掉另一套 native 库 + 标准库）。
-- `versionName` 带 ABI 后缀（`1.10.4-arm64` / `1.10.4-x64`），装上后能在「关于」里
+- `versionName` 带 ABI 后缀（`1.10.7-arm64` / `1.10.7-x64`），装上后能在「关于」里
   确认手里的是哪个包；`versionCode` 两个 flavor 相同，同一台设备本来也只能装一个。
 - CI 会逐个包校验「只有一套 ABI 原生库 + 一份 ABI 专属标准库」，拆包没生效直接失败。
 
