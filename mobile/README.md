@@ -79,6 +79,7 @@ mobile/
 | 进程存活 | 前台服务 + 常驻通知，息屏/切后台链路不断 | App 进后台 20 秒宽限后关闭监听，回前台自动恢复 |
 | 控制入口 | 通知栏「停止」、App 内菜单 | App 内菜单（没有常驻通知） |
 | 面板 | 系统 WebView + 下拉刷新 | `WKWebView` |
+| 面板 JS 弹窗 | `WebChromeClient` 把 `alert/confirm/prompt` 接到原生对话框；`target=_blank` 在同一 WebView 打开 | `WKUIDelegate` 提供同样的三个回调 |
 | 存储 | `filesDir/data`（accounts/usage/catalog/logs） | `Library/Application Support/data` |
 | 明文回环 | `network_security_config` 放行 127.0.0.1 | ATS 例外 + `NSAllowsLocalNetworking` |
 | HTTPS 根证书 | Android 系统证书目录（`SSL_CERT_DIR`） | 随包 `certifi`（iOS 无系统 CA 路径） |

@@ -11,11 +11,15 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.Message
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.JsPromptResult
+import android.webkit.JsResult
+import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -128,6 +132,83 @@ class MainActivity : Activity() {
                 }
             }
         }
+        installJsDialogBridge()
+    }
+
+    /**
+     * 面板里大量用 `alert()` / `confirm()` 做提示与二次确认（关闭网关、删除账号、清空日志、
+     * 清空 Key…）。WebView 在没有 WebChromeClient 时会把 JS 对话框直接丢掉：`confirm()`
+     * 立刻返回 false，用户看到的就是「点了没反应」。这里把三个方法接到原生对话框上。
+     */
+    private fun installJsDialogBridge() {
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onJsAlert(view: WebView?, url: String?, message: String?, result: JsResult?): Boolean {
+                if (result == null) return false
+                showJsDialog(message.orEmpty(), null, okOnly = true) { result.confirm() }
+                return true
+            }
+
+            override fun onJsConfirm(view: WebView?, url: String?, message: String?, result: JsResult?): Boolean {
+                if (result == null) return false
+                showJsDialog(message.orEmpty(), null, okOnly = false) { ok ->
+                    if (ok) result.confirm() else result.cancel()
+                }
+                return true
+            }
+
+            override fun onJsPrompt(
+                view: WebView?,
+                url: String?,
+                message: String?,
+                defaultValue: String?,
+                result: JsPromptResult?,
+            ): Boolean {
+                if (result == null) return false
+                val input = EditText(this@MainActivity).apply {
+                    setText(defaultValue.orEmpty())
+                    setSelection(text.length)
+                    setSingleLine()
+                }
+                showJsDialog(message.orEmpty(), input, okOnly = false) { ok ->
+                    if (ok) result.confirm(input.text.toString()) else result.cancel()
+                }
+                return true
+            }
+
+            override fun onCreateWindow(
+                view: WebView?,
+                isDialog: Boolean,
+                isUserGesture: Boolean,
+                resultMsg: Message?,
+            ): Boolean {
+                // 面板的「在新窗口打开运行日志」是 target=_blank，WebView 默认不处理 = 点了没反应。
+                // 手机上就用同一个 WebView 打开，不为一个链接再开一屏。
+                val transport = resultMsg?.obj as? WebView.WebViewTransport ?: return false
+                val capture = WebView(this@MainActivity)
+                capture.webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(v: WebView?, request: WebResourceRequest?): Boolean {
+                        request?.url?.let { webView.loadUrl(it.toString()) }
+                        capture.post { capture.destroy() }
+                        return true
+                    }
+                }
+                transport.webView = capture
+                resultMsg?.sendToTarget()
+                return true
+            }
+        }
+    }
+
+    private fun showJsDialog(message: String, input: EditText?, okOnly: Boolean, onResult: (Boolean) -> Unit) {
+        val builder = AlertDialog.Builder(this)
+            .setMessage(message)
+            .setPositiveButton(android.R.string.ok) { _, _ -> onResult(true) }
+            .setOnCancelListener { onResult(false) }
+        if (!okOnly) {
+            builder.setNegativeButton(android.R.string.cancel) { _, _ -> onResult(false) }
+        }
+        if (input != null) builder.setView(input)
+        builder.show()
     }
 
     override fun onResume() {

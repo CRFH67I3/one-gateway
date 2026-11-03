@@ -44,6 +44,9 @@ final class RootViewController: UIViewController {
         view.backgroundColor = .systemBackground
         webView.translatesAutoresizingMaskIntoConstraints = false
         webView.allowsBackForwardNavigationGestures = true
+        // 面板用 alert/confirm 做提示与二次确认（关闭网关、删账号、清日志），
+        // 没有 uiDelegate 时 WKWebView 会静默丢弃，confirm 直接返回 false。
+        webView.uiDelegate = self
 
         let header = UIView()
         header.translatesAutoresizingMaskIntoConstraints = false
@@ -381,6 +384,77 @@ final class RootViewController: UIViewController {
         present(alert, animated: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
             alert.dismiss(animated: true)
+        }
+    }
+}
+
+// MARK: - 面板 JS 弹窗
+
+/// WKWebView 不自带 alert/confirm/prompt 的 UI：不设置 uiDelegate 时这三个调用会被静默丢弃，
+/// `confirm()` 直接返回 false——面板里所有二次确认（关闭网关、删账号、清空日志）都会表现为
+/// 「点了没反应」。这里补上原生对话框，并让 `target=_blank` 就地打开。
+extension RootViewController: WKUIDelegate {
+
+    func webView(
+        _ webView: WKWebView,
+        runJavaScriptAlertPanelWithMessage message: String,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping () -> Void
+    ) {
+        let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "好", style: .default) { _ in completionHandler() })
+        presentPanelDialog(alert)
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        runJavaScriptConfirmPanelWithMessage message: String,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping (Bool) -> Void
+    ) {
+        let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel) { _ in completionHandler(false) })
+        alert.addAction(UIAlertAction(title: "确定", style: .default) { _ in completionHandler(true) })
+        presentPanelDialog(alert)
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        runJavaScriptTextInputPanelWithPrompt prompt: String,
+        defaultText: String?,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping (String?) -> Void
+    ) {
+        let alert = UIAlertController(title: nil, message: prompt, preferredStyle: .alert)
+        alert.addTextField { $0.text = defaultText }
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel) { _ in completionHandler(nil) })
+        alert.addAction(UIAlertAction(title: "确定", style: .default) { _ in
+            completionHandler(alert.textFields?.first?.text)
+        })
+        presentPanelDialog(alert)
+    }
+
+    /// 面板的「在新窗口打开运行日志」是 target=_blank；默认不处理就是点了没反应，这里就地打开。
+    func webView(
+        _ webView: WKWebView,
+        createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        if navigationAction.targetFrame == nil {
+            webView.load(navigationAction.request)
+        }
+        return nil
+    }
+
+    /// 同一个时刻只允许一个弹窗，避免「already presenting」把 JS 回调卡死。
+    private func presentPanelDialog(_ alert: UIAlertController) {
+        DispatchQueue.main.async {
+            if let presented = self.presentedViewController, !presented.isBeingDismissed {
+                presented.dismiss(animated: false) { self.present(alert, animated: true) }
+            } else {
+                self.present(alert, animated: true)
+            }
         }
     }
 }
