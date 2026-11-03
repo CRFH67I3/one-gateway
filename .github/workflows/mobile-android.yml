@@ -9,6 +9,10 @@ name: mobile-android
 on:
   push:
     branches: [main]
+    # 发版 tag 要重新出包：Release 里放的必须是「这一版核心打进 APK」的产物，
+    # 不能复用 main 上一次构建留下的 artifact。tag 推送不参与 paths 过滤，
+    # 所以即使这个 tag 只动了文档，也会照常构建。
+    tags: ["v*"]
     paths:
       - "wb_*.py"
       - "dashboard.html"
@@ -71,10 +75,30 @@ jobs:
           path: mobile/android/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
 
-      # Tag pushes attach the APK to the release that release.yml drafts.
+      # Release 的创建权在 release.yml：它只建 draft，由维护者补完说明后手动
+      # Publish。这里绝不能自己建 release——softprops/action-gh-release 在没有
+      # 现存 release 时会建成**已发布**状态，既绕开约定，也会让 release.yml
+      # 检测到「不是 draft」而中止整条发布。
+      # 所以：等 draft 出现，再往里追加产物。
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: mobile/android/app/build/outputs/apk/**/*.apk
-          fail_on_unmatched_files: false
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # 便携版打出来的 OpenWrt 包也以 .apk 结尾，重命名避免同名的混淆。
+          mkdir -p dist-mobile
+          cp mobile/android/app/build/outputs/apk/release/*.apk \
+             "dist-mobile/workbuddy-hub-android-${TAG}.apk"
+          cp mobile/android/app/build/outputs/apk/debug/*.apk \
+             "dist-mobile/workbuddy-hub-android-${TAG}-debug.apk"
+          for _ in $(seq 1 90); do
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              gh release upload "$TAG" dist-mobile/*.apk --clobber
+              echo "attached $(ls dist-mobile/*.apk | tr '\n' ' ')to $TAG"
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "::warning::30 分钟内没等到 $TAG 的 draft release，跳过附加（APK 仍在本次运行的 artifact 里）"

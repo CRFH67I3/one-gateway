@@ -4,6 +4,8 @@
 - **工具归一化过滤非法 function.name**（#726）：`normalize_tools` 自动过滤不符合 `^[A-Za-z0-9_-]{1,64}$` 命名规范的工具，丢弃无 function 载荷的服务端工具声明（如 `web_search`），修复上游 400 / 11133（`tools[N].function.name` 校验失败）。
 - **CodeArts 会话上限与排队修复**（#723）：CodeArts 请求补充发送 `x-ot-session-id`、`user-session-id`（账号级稳定散列）与每请求随机 `x-ot-trace-id`，解决华为云将连续请求误判为并发新建会话导致触碰 3 会话上限、出现 `TM.00001041` 报错与 90 秒排队阻塞的问题。
 - **账号代理槽支持账号密码认证与格式自动规整**（#648）：代理槽完整支持带认证的 `http://user:password@host:port` 代理（出站连接池与代理隧道自动注入 `Proxy-Authorization: Basic`），并对服务商常见的 `host:port:user:pass` 格式与缺失 scheme 的代理自动清洗归整。
+- **新增 iOS / Android 手机端**：同一份网关核心（`wb_*.py` + `dashboard.html`）原样打包进 App，不另写一套实现——Android 用 Chaquopy 内嵌 CPython 3.13，配前台服务常驻（息屏、切后台不断链路）；iOS 链接 BeeWare `python-app-support` 的 `Python.framework`，包内按 CPython 官方 iOS 布局铺标准库（`python/lib/pythonX.Y` 作 `PYTHONHOME`，应用代码作 `PYTHONPATH`），前台运行、进后台 20 秒后停止监听并在回前台自动恢复。两端共用 `mobile/shared/wb_mobile_runtime.py` 处理沙盒目录、核心增量同步、证书信任链与启停；面板由 WebView / WKWebView 直接加载 `127.0.0.1:8788`，与电脑版同源。新增 `mobile-android` / `mobile-ios` 两条 CI，产出 APK 与未签名 IPA，打 `v*` tag 时自动附加到 Release。详见 [`mobile/README.md`](../mobile/README.md)。
+- **修复限流套件的时间炸弹**：`_test_rate_limit_reset_at.py` 把样本墙钟写死成 `2026-11-02`，那天之后被测逻辑（正确地）把陈旧时刻当作过期丢弃，5 个用例随即失败；现在改为按当前时间生成未来墙钟，断言本身保持不变。
 
 验证：
 - 本地完整测试矩阵：246 个套件全部通过（183 Python + 63 JS，`246 passed, 0 failed, 0 skipped`）。

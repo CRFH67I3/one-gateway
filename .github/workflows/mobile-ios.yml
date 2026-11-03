@@ -14,6 +14,9 @@ name: mobile-ios
 on:
   push:
     branches: [main]
+    # 发版 tag 要重新出包：Release 里放的必须是「这一版核心打进 IPA」的产物。
+    # tag 推送不参与 paths 过滤，所以即使这个 tag 只动了文档，也会照常构建。
+    tags: ["v*"]
     paths:
       - "wb_*.py"
       - "dashboard.html"
@@ -153,9 +156,23 @@ jobs:
           path: mobile/ios/*.ipa
           if-no-files-found: error
 
+      # 同 Android：release.yml 独占 draft 的创建权，这里只等它建好再追加。
+      # 未签名是刻意的（签名要维护者的 Team 与证书），所以文件名里写明。
       - name: Attach to release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: mobile/ios/*.ipa
-          fail_on_unmatched_files: false
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist-mobile
+          cp mobile/ios/*.ipa "dist-mobile/workbuddy-hub-ios-${TAG}-unsigned.ipa"
+          for _ in $(seq 1 90); do
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              gh release upload "$TAG" dist-mobile/*.ipa --clobber
+              echo "attached $(ls dist-mobile/*.ipa) to $TAG"
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "::warning::30 分钟内没等到 $TAG 的 draft release，跳过附加（IPA 仍在本次运行的 artifact 里）"
