@@ -42,7 +42,24 @@ android {
     // 仓库里不放签名材料。CI 或本地提供了 keystore 就用它出正式包；
     // 没提供时退回 debug 签名，保证产物可安装（便于 sideload 测试）。
     val keystorePath = System.getenv("WB_ANDROID_KEYSTORE")
+    // 固定 debug 签名：CI 上把 keystore 路径直接给过来，别依赖 AGP 从
+    // ~/.android 隐式找。runner 的 ANDROID_SDK_HOME / ANDROID_USER_HOME 与
+    // $HOME 不一定一致，写在 $HOME/.android 下会被忽略，AGP 转而现场生成一对
+    // 随机密钥——每次构建证书都不同，覆盖安装时报
+    // INSTALL_FAILED_UPDATE_INCOMPATIBLE。
+    // 用独立的 fixedDebug 而不是改内置 debug：内置配置由 AGP 动态创建，
+    // 在 signingConfigs 块里直接改它依赖 AGP 的创建时机。
+    val debugKeystorePath = System.getenv("WB_ANDROID_DEBUG_KEYSTORE")
     signingConfigs {
+        if (!debugKeystorePath.isNullOrBlank()) {
+            create("fixedDebug") {
+                storeFile = file(debugKeystorePath)
+                // AGP 约定的 debug 口令/别名，允许用环境变量覆盖。
+                storePassword = System.getenv("WB_ANDROID_KEYSTORE_PASSWORD") ?: "android"
+                keyAlias = System.getenv("WB_ANDROID_KEY_ALIAS") ?: "androiddebugkey"
+                keyPassword = System.getenv("WB_ANDROID_KEY_PASSWORD") ?: "android"
+            }
+        }
         if (!keystorePath.isNullOrBlank()) {
             create("release") {
                 storeFile = file(keystorePath)
@@ -54,14 +71,20 @@ android {
     }
 
     buildTypes {
+        debug {
+            // 有固定 keystore 就用它，让每次构建的调试包签名一致。
+            if (!debugKeystorePath.isNullOrBlank()) {
+                signingConfig = signingConfigs.getByName("fixedDebug")
+            }
+        }
         release {
             isMinifyEnabled = false
             isShrinkResources = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = if (!keystorePath.isNullOrBlank()) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
+            signingConfig = when {
+                !keystorePath.isNullOrBlank() -> signingConfigs.getByName("release")
+                !debugKeystorePath.isNullOrBlank() -> signingConfigs.getByName("fixedDebug")
+                else -> signingConfigs.getByName("debug")
             }
         }
     }

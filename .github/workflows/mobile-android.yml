@@ -59,7 +59,7 @@ jobs:
             mobile/shared mobile/android/app/src/main/python
 
       # 固定 debug 签名。
-      # AGP 在 ~/.android/debug.keystore 缺失时会**现场生成**一对随机密钥：alias
+      # AGP 在没有 debug.keystore 时会**现场生成**一对随机密钥：alias
       # （androiddebugkey）和口令（android）都是固定值，密钥本身不是。托管 runner
       # 每次都是全新虚拟机，于是每次构建的证书都不同——跨构建无法覆盖安装
       # （INSTALL_FAILED_UPDATE_INCOMPATIBLE），依赖签名指纹的校验也会失效。
@@ -73,18 +73,21 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${KEYSTORE_B64:-}" ]; then
-            echo "::warning::未配置 WB_ANDROID_DEBUG_KEYSTORE：本次 debug keystore 由 AGP 随机生成，无法覆盖安装其它构建"
+            echo "::warning::未配置 WB_ANDROID_DEBUG_KEYSTORE：本次签名由 AGP 随机生成，无法覆盖安装其它构建"
             exit 0
           fi
-          mkdir -p "$HOME/.android"
-          printf '%s' "$KEYSTORE_B64" | base64 -d > "$HOME/.android/debug.keystore"
-          chmod 600 "$HOME/.android/debug.keystore"
+          KS="$RUNNER_TEMP/wb-debug.keystore"
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$KS"
+          chmod 600 "$KS"
           # 口令必须是 AGP 约定的 android，否则要等签名阶段才报错，很难定位。
-          keytool -list -keystore "$HOME/.android/debug.keystore" \
-            -storepass android -alias androiddebugkey >/dev/null
-          echo "debug keystore 已还原，证书指纹："
-          keytool -list -v -keystore "$HOME/.android/debug.keystore" \
+          keytool -list -keystore "$KS" -storepass android -alias androiddebugkey >/dev/null
+          echo "debug keystore 已还原：$KS"
+          keytool -list -v -keystore "$KS" \
             -storepass android -alias androiddebugkey | grep -E "SHA256:" || true
+          # 显式告诉 Gradle 用哪份 keystore。不要指望 ~/.android/debug.keystore：
+          # runner 的 ANDROID_SDK_HOME / ANDROID_USER_HOME 与 $HOME 不一致时，
+          # AGP 会忽略它并自己生成一对随机密钥（实测踩过）。
+          echo "WB_ANDROID_DEBUG_KEYSTORE=$KS" >> "$GITHUB_ENV"
 
       - name: Build APK
         working-directory: mobile/android
