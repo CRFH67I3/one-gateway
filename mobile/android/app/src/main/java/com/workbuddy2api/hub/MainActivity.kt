@@ -271,25 +271,15 @@ class MainActivity : Activity() {
     // ---------------------------------------------------------------- 菜单
     private fun showMenu(anchor: View) {
         val menu = PopupMenu(this, anchor)
-        menu.menu.add(0, MENU_TOGGLE, 0, getString(R.string.menu_toggle))
-        menu.menu.add(0, MENU_RESTART, 1, getString(R.string.menu_restart))
-        menu.menu.add(0, MENU_SETTINGS, 2, getString(R.string.menu_settings))
-        menu.menu.add(0, MENU_IMPORT, 3, getString(R.string.menu_import))
-        menu.menu.add(0, MENU_COPY, 4, getString(R.string.menu_copy))
-        menu.menu.add(0, MENU_LOG, 5, getString(R.string.menu_log))
-        menu.menu.add(0, MENU_ABOUT, 6, getString(R.string.menu_about))
+        menu.menu.add(0, MENU_RESTART, 0, getString(R.string.menu_restart))
+        menu.menu.add(0, MENU_SETTINGS, 1, getString(R.string.menu_settings))
+        menu.menu.add(0, MENU_IMPORT, 2, getString(R.string.menu_import))
+        menu.menu.add(0, MENU_COPY, 3, getString(R.string.menu_copy))
+        menu.menu.add(0, MENU_LOG, 4, getString(R.string.menu_log))
+        menu.menu.add(0, MENU_ABOUT, 5, getString(R.string.menu_about))
+        menu.menu.add(0, MENU_EXIT, 6, getString(R.string.menu_exit))
         menu.setOnMenuItemClickListener { item: MenuItem ->
             when (item.itemId) {
-                MENU_TOGGLE -> {
-                    if (GatewayService.active) {
-                        GatewayService.send(this, GatewayService.ACTION_STOP)
-                        loadedUrl = null
-                        Toast.makeText(this, R.string.toast_stopped, Toast.LENGTH_SHORT).show()
-                    } else {
-                        GatewayService.send(this, GatewayService.ACTION_START)
-                        Toast.makeText(this, R.string.toast_starting, Toast.LENGTH_SHORT).show()
-                    }
-                }
                 MENU_RESTART -> {
                     GatewayService.send(this, GatewayService.ACTION_RESTART)
                     Toast.makeText(this, R.string.toast_restarting, Toast.LENGTH_SHORT).show()
@@ -299,10 +289,26 @@ class MainActivity : Activity() {
                 MENU_COPY -> copyApiBase()
                 MENU_LOG -> showLog()
                 MENU_ABOUT -> showAbout()
+                MENU_EXIT -> exitApp()
             }
             true
         }
         menu.show()
+    }
+
+    /**
+     * 退出：停掉网关与前台服务，然后关掉 App。
+     *
+     * 菜单里不再单列「启动/停止」：停止网关仍可从通知栏的「停止」按钮做（那才是
+     * 「想让它别跑」的入口），启动则由覆盖层的「启动网关」按钮或「打开 App 时自动
+     * 启动」负责。菜单里的「退出」语义是「我要走了」——所以要连网关一起停掉，
+     * 否则前台服务会把 App 进程留在后台，通知栏也一直挂着，用户以为退出了其实没退。
+     */
+    private fun exitApp() {
+        GatewayService.send(this, GatewayService.ACTION_STOP)
+        loadedUrl = null
+        Toast.makeText(this, R.string.toast_exited, Toast.LENGTH_SHORT).show()
+        finishAffinity()
     }
 
     private fun launchImport() {
@@ -444,12 +450,12 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQUEST_IMPORT = 1001
-        private const val MENU_TOGGLE = 1
         private const val MENU_RESTART = 2
         private const val MENU_SETTINGS = 3
         private const val MENU_IMPORT = 4
         private const val MENU_COPY = 5
         private const val MENU_LOG = 6
         private const val MENU_ABOUT = 7
+        private const val MENU_EXIT = 8
     }
 }

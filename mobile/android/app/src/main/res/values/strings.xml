@@ -23,17 +23,16 @@
     <string name="action_stop">停止</string>
 
     <!-- 菜单 -->
-    <string name="menu_toggle">启动 / 停止</string>
+    <string name="menu_exit">退出</string>
     <string name="menu_restart">重启网关</string>
-    <string name="menu_settings">设置</string>
+    <string name="menu_settings">端口设置</string>
     <string name="menu_import">导入账号凭证</string>
     <string name="menu_copy">复制 API 地址</string>
     <string name="menu_log">查看启动日志</string>
     <string name="menu_about">关于</string>
 
-    <string name="toast_stopped">网关已停止</string>
-    <string name="toast_starting">正在启动…</string>
     <string name="toast_restarting">正在重启…</string>
+    <string name="toast_exited">已退出，网关已停止</string>
     <string name="toast_copied">已复制：%1$s</string>
 
     <!-- 设置 -->

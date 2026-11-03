@@ -83,7 +83,7 @@ mobile/
 |---|---|---|
 | 进程存活 | 前台服务 + 常驻通知，息屏/切后台链路不断 | iOS 26+：持续后台任务（`BGContinuedProcessingTask`）让网关在后台继续监听；更早系统上 20 秒宽限后关闭监听，回前台自动恢复 |
 | 锁屏/灵动岛 | — | 可选的实时活动（Live Activity）：锁屏卡片 + 灵动岛，两个独立开关 |
-| 控制入口 | 通知栏「停止」、App 内菜单 | App 内菜单（含「后台保持」设置页） |
+| 控制入口 | 通知栏「停止」、App 内菜单（重启网关 / 端口设置 / 导入凭证 / 复制 API 地址 / 日志 / 关于 / 退出） | App 内菜单（含「后台保持」设置页） |
 | 面板 | 系统 WebView + 下拉刷新 | `WKWebView` |
 | 面板 JS 弹窗 | `WebChromeClient` 把 `alert/confirm/prompt` 接到原生对话框；`target=_blank` 在同一 WebView 打开 | `WKUIDelegate` 提供同样的三个回调 |
 | 存储 | `filesDir/data`（accounts/usage/catalog/logs） | `Library/Application Support/data` |
@@ -200,10 +200,13 @@ open WorkBuddyHub.xcodeproj                  # 选自己的 Team 后可真机运
    扫描的桌面客户端进程内存里回收，手机上做不到。移动端请走面板的「+ 添加账号
    (OAuth)」完成登录；「导入账号凭证」只对未加密的旧格式文件有效。
 3. **未签名 IPA**：需要自行签名；且仓库没有内置 App 图标（sideload 无影响，上架需补）。
-4. **端口**：默认 8788，可在设置里改；改端口或局域网开关会重启网关。
+4. **端口**：默认 8788，可在「端口设置」里改；改端口或局域网开关会重启网关。
 5. **首次启动较慢**：要解压核心、初始化账号池与模型目录（几秒），期间面板显示
    「正在启动」。
-6. **旋转屏幕会重建界面（Android）**：清单里只放行 `keyboardHidden`，旋转时 Activity 重建。
+6. **Android 菜单里的「退出」**：会连网关和前台服务一起停掉再关 App（菜单不再单列
+   「启动/停止」——只想停网关用通知栏的「停止」按钮，重新打开 App 再点覆盖层的
+   「启动网关」即可）。
+7. **旋转屏幕会重建界面（Android）**：清单里只放行 `keyboardHidden`，旋转时 Activity 重建。
    放行 `orientation|screenSize` 时 Activity 不重建，WebView 会留着上一次的页面缩放，
    横屏右侧约 12% 的按钮（关闭网关、修改密码、添加 API Key）被挤出屏幕；实测
    `reload()` 清不掉这个缩放，只有新建的 WebView 才会按新视口重算。网关跑在前台服务里，
