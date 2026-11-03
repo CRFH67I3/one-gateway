@@ -101,6 +101,12 @@ gradle :app:assembleDebug        # 或 :app:assembleRelease
 - 没有提供 keystore 时 release 包用 debug 签名，保证可直接 sideload；要出正式包就设
   `WB_ANDROID_KEYSTORE` / `WB_ANDROID_KEYSTORE_PASSWORD` / `WB_ANDROID_KEY_ALIAS` /
   `WB_ANDROID_KEY_PASSWORD`；
+- **CI 的 debug 签名是固定的**：仓库 secret `WB_ANDROID_DEBUG_KEYSTORE` 存了一份
+  keystore 的 base64，构建前还原并由 `WB_ANDROID_DEBUG_KEYSTORE` 指给 Gradle，
+  所以多次构建的证书一致、可以覆盖安装。注意 secret 里必须是 base64 文本——
+  直接存二进制会让工作流在 startup 阶段失败（Secret 值必须是合法 UTF-8）；
+  另外别指望 `~/.android/debug.keystore`：runner 的 `ANDROID_SDK_HOME` 与 `$HOME`
+  不一致时 AGP 会忽略它、自己生成随机密钥。本地不设该变量时仍用各自的 debug keystore；
 - 装机后首次启动会解压核心到 `filesDir/core-bundle`，之后按版本号判断是否重解压。
 
 ### iOS
