@@ -221,6 +221,7 @@ CPython 3.13，iOS 链接 BeeWare `python-app-support` 的 `Python.framework`）
 | iOS | 前台运行 + 优雅让位 | 进后台 20 秒宽限后关闭监听，回前台自动恢复（iOS 不允许后台常驻监听） |
 
 - 构建产物由 `.github/workflows/mobile-android.yml`（APK）与 `mobile-ios.yml`（未签名 IPA）自动产出，也支持本地构建；
+- **移动端外壳全部由 Vibe Coding（AI 辅助生成、对话式迭代）完成**，未经逐行人工审查，属实验性代码；网关内核未改写，仍是本仓库原有的 `wb_*.py`。用前请自行评估风险；
 - 详细原理、目录结构、构建命令与已知限制见 **[`mobile/README.md`](mobile/README.md)**。
 
 ---
