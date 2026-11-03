@@ -63,5 +63,13 @@ targets:
         # Xcode 会把切片里的 Python.framework 复制到 $(BUILT_PRODUCTS_DIR) 并自动加进
         # 搜索路径；再指一份 Vendor 下的副本会让 clang 同时看到两个
         # Python.framework/Headers/module.modulemap，报 "redefinition of module 'Python'"。
+        #
+        # 头文件按官方文档指到 BUILT_PRODUCTS_DIR 里那一份：Python.framework 的
+        # module.modulemap 在 Headers/ 下，只有把该目录放进 header search path，
+        # clang 才能在 include 时加载模块定义，否则报
+        # "module 'Python' ... is not defined in any loaded module map file"。
+        HEADER_SEARCH_PATHS:
+          - $(inherited)
+          - $(BUILT_PRODUCTS_DIR)/Python.framework/Headers
         # framework 头里用引号 include 同名头文件，iOS SDK 默认对此告警，关掉。
         CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER: "NO"
