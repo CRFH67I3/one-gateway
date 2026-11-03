@@ -134,8 +134,27 @@ App 内菜单 →「后台保持」有三个开关，对应三种手段：
 # 需要 JDK 17、Android SDK（platform 35）；无需本机装 Gradle，CI 用 8.9
 cd mobile/android
 gradle :app:assembleDebug        # 或 :app:assembleRelease
-# 产物：app/build/outputs/apk/{debug,release}/*.apk
+# 产物：app/build/outputs/apk/<flavor>/<buildType>/app-<flavor>-<buildType>.apk
 ```
+
+**每个 ABI 单独出包**（flavor 维度 `abi`）：
+
+| flavor | ABI | 用途 | 大致体积 |
+|---|---|---|---|
+| `arm64` | `arm64-v8a` | 真机（现在几乎所有 Android 手机） | ~23 MB |
+| `x64` | `x86_64` | 模拟器 / x86_64 设备 | ~23 MB |
+
+- 拆包用的是 product flavor + 每个 flavor 只声明一个 `abiFilters`，**不是** `splits { abi }`
+  或 App Bundle：Chaquopy 把解释器和标准库按 ABI 拆成三套资产
+  （`libpython3.13.so`、`assets/chaquopy/stdlib-<abi>.imy`、
+  `assets/chaquopy/bootstrap-native/<abi>/`），splits 只过滤 `lib/`，assets 里另一套
+  ABI 的副本照样留在包内。官方 FAQ 也写明 splits 与 App Bundle 对 Chaquopy 帮助不大。
+- 因此 `ndk.abiFilters` **只能写在 flavor 里**：它与 `defaultConfig` 是取并集，
+  留在 `defaultConfig` 会让两个 flavor 都拿到两个 ABI，拆包白做。
+- 合并后的包从 34.7 MB 降到约 23 MB（省掉另一套 native 库 + 标准库）。
+- `versionName` 带 ABI 后缀（`1.10.4-arm64` / `1.10.4-x64`），装上后能在「关于」里
+  确认手里的是哪个包；`versionCode` 两个 flavor 相同，同一台设备本来也只能装一个。
+- CI 会逐个包校验「只有一套 ABI 原生库 + 一份 ABI 专属标准库」，拆包没生效直接失败。
 
 - 首次构建会从仓库根目录把 `wb_*.py` + `dashboard.html` 同步进
   `app/src/main/assets/core/`（Gradle 的 `syncGatewayCore` 任务，构建产物不入库）；
@@ -181,7 +200,7 @@ open WorkBuddyHub.xcodeproj                  # 选自己的 Team 后可真机运
 
 | 工作流 | 触发 | 产物 |
 |---|---|---|
-| `.github/workflows/mobile-android.yml` | 改动 `wb_*.py` / `dashboard.html` / `mobile/**` | `workbuddy-hub-android`（debug + release APK） |
+| `.github/workflows/mobile-android.yml` | 改动 `wb_*.py` / `dashboard.html` / `mobile/**` | `workbuddy-hub-android`（arm64 / x64 各一份 debug + release） |
 | `.github/workflows/mobile-ios.yml` | 同上 | `workbuddy-hub-ios`（未签名 IPA） |
 
 两条流水线都会先做语法门禁（`compileall`）并断言**核心确实进了包**

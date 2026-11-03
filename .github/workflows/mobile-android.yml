@@ -36,7 +36,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 两个 ABI flavor × debug/release = 4 个变体，比单包时多出一倍打包次数，
+    # 45 分钟不够稳，放宽到 60。
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -89,16 +91,38 @@ jobs:
           # AGP 会忽略它并自己生成一对随机密钥（实测踩过）。
           echo "WB_ANDROID_DEBUG_KEYSTORE=$KS" >> "$GITHUB_ENV"
 
+      # 每个 ABI 一个 flavor（arm64 / x64），所以 assembleDebug/assembleRelease 会各出两个包。
+      # 产物路径因此多了一层 flavor 目录：apk/<flavor>/<buildType>/app-<flavor>-<buildType>.apk
       - name: Build APK
         working-directory: mobile/android
         run: gradle :app:assembleDebug :app:assembleRelease --stacktrace
 
       - name: Report artifacts
         run: |
-          ls -lh mobile/android/app/build/outputs/apk/*/*.apk
-          # The gateway core must be inside the APK, not only in the source tree.
-          unzip -l mobile/android/app/build/outputs/apk/release/*.apk \
-            | grep -q "assets/core/wb_proxy.py"
+          set -euo pipefail
+          shopt -s globstar
+          ls -lh mobile/android/app/build/outputs/apk/**/*.apk
+          # 每个包里都必须有网关核心，而不只是源码树里有。
+          # 同时校验拆包真的生效：一个包只能带一个 ABI 的原生库、一份 ABI 专属标准库，
+          # 否则等于把双 ABI 的包改了个名字，白拆。
+          for apk in mobile/android/app/build/outputs/apk/*/*/*.apk; do
+            echo "== $apk ($(du -h "$apk" | cut -f1))"
+            listing=$(unzip -l "$apk")
+            printf '%s\n' "$listing" | grep -q "assets/core/wb_proxy.py" \
+              || { echo "::error::$apk 里没有 assets/core/wb_proxy.py"; exit 1; }
+
+            abis=$(printf '%s\n' "$listing" \
+              | awk '$4 ~ /^lib\// {split($4, p, "/"); print p[2]}' | sort -u)
+            echo "   原生库 ABI: $(echo "$abis" | tr '\n' ' ')"
+            [ "$(printf '%s\n' "$abis" | wc -l)" -eq 1 ] \
+              || { echo "::error::$apk 带了多个 ABI 的原生库，拆包没生效"; exit 1; }
+
+            stdlib=$(printf '%s\n' "$listing" | awk '
+              $4 ~ /^assets\/chaquopy\/stdlib-/ && $4 !~ /stdlib-common/ {n++} END {print n + 0}')
+            echo "   ABI 专属标准库份数: $stdlib"
+            [ "$stdlib" -eq 1 ] \
+              || { echo "::error::$apk 带了 $stdlib 份 ABI 标准库，拆包没生效"; exit 1; }
+          done
 
       # 把实际签进 APK 的证书打出来：签名是否固定，日志里一眼可查，不用下载对比。
       - name: Report signing certificate
@@ -110,7 +134,7 @@ jobs:
             echo "::warning::找不到 apksigner，跳过证书指纹打印"
             exit 0
           fi
-          for apk in mobile/android/app/build/outputs/apk/*/*.apk; do
+          for apk in mobile/android/app/build/outputs/apk/*/*/*.apk; do
             echo "== $apk"
             "$APKSIGNER" verify --print-certs "$apk" \
               | grep "certificate SHA-256 digest" | head -n1
@@ -135,11 +159,19 @@ jobs:
         run: |
           set -euo pipefail
           # 便携版打出来的 OpenWrt 包也以 .apk 结尾，重命名避免同名的混淆。
+          # 每个 ABI 一个 flavor，文件名带上 flavor，下载时不用猜是给真机还是模拟器：
+          #   ...-arm64.apk  真机（几乎全部 Android 手机）
+          #   ...-x64.apk    模拟器 / x86_64 设备
           mkdir -p dist-mobile
-          cp mobile/android/app/build/outputs/apk/release/*.apk \
-             "dist-mobile/workbuddy-hub-android-${TAG}.apk"
-          cp mobile/android/app/build/outputs/apk/debug/*.apk \
-             "dist-mobile/workbuddy-hub-android-${TAG}-debug.apk"
+          for apk in mobile/android/app/build/outputs/apk/*/release/*.apk; do
+            flavor=$(basename "$(dirname "$(dirname "$apk")")")
+            cp "$apk" "dist-mobile/workbuddy-hub-android-${TAG}-${flavor}.apk"
+          done
+          for apk in mobile/android/app/build/outputs/apk/*/debug/*.apk; do
+            flavor=$(basename "$(dirname "$(dirname "$apk")")")
+            cp "$apk" "dist-mobile/workbuddy-hub-android-${TAG}-${flavor}-debug.apk"
+          done
+          ls -lh dist-mobile
           for _ in $(seq 1 90); do
             if gh release view "$TAG" >/dev/null 2>&1; then
               gh release upload "$TAG" dist-mobile/*.apk --clobber

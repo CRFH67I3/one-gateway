@@ -30,13 +30,34 @@ android {
         targetSdk = 34
         versionCode = versionCodeValue
         versionName = serverVersion
-
-        // Python 解释器是原生组件，必须显式声明 ABI。
-        // 3.12+ 不再提供 armeabi-v7a/x86 的构建，保留 64 位两种即可覆盖真机与模拟器。
-        ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
-        }
         resValue("string", "app_version_name", serverVersion)
+    }
+
+    // 每个 ABI 单独出包（真机 arm64-v8a / 模拟器 x86_64），包体从 35MB 降到 23MB 左右。
+    //
+    // 为什么不用 splits { abi { } } 或 App Bundle：Chaquopy 把解释器和标准库按 ABI 拆成
+    // 三套独立资产（libpython3.13.so、assets/chaquopy/stdlib-<abi>.imy、
+    // assets/chaquopy/bootstrap-native/<abi>/），splits 只过滤 lib/ 目录，assets 里另一套
+    // ABI 的副本照样留在每个包里，省不掉多少。官方 FAQ 也明确说这两项 "won't help much"，
+    // 推荐用 flavor dimension 逐个声明 abiFilters。
+    //
+    // 还有一处必须注意：ndk.abiFilters 在 defaultConfig 与 flavor 之间是取并集，
+    // 所以它只能写在 flavor 里，defaultConfig 必须留空——否则两个 flavor 都会拿到两个 ABI，
+    // 拆包就白做了。
+    flavorDimensions += "abi"
+    productFlavors {
+        create("arm64") {
+            dimension = "abi"
+            // 后缀进 versionName（关于对话框会显示成 1.10.4-arm64），
+            // 装上之后能一眼确认手里这个包是给真机还是给模拟器的。
+            versionNameSuffix = "-arm64"
+            ndk { abiFilters += "arm64-v8a" }
+        }
+        create("x64") {
+            dimension = "abi"
+            versionNameSuffix = "-x64"
+            ndk { abiFilters += "x86_64" }
+        }
     }
 
     // 仓库里不放签名材料。CI 或本地提供了 keystore 就用它出正式包；
