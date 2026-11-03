@@ -40,21 +40,36 @@ import wb_proxy as P          # noqa: E402
 
 MODEL = "deepseek-v4.1-flash"
 
+# 样本里的墙钟必须始终落在**未来**。这些用例验证的是「上游给了一个还能用的
+# 时刻」，被测代码会（正确地）丢弃已经过去的时刻；写死日期在那天过后就会
+# 从绿变红——那是测试自己的时间炸弹，不是被测逻辑的回归。
+_BASE = time.time() + 2 * 3600          # 两小时后，足够跑完整个套件
+
+
+def _wall_clock(epoch):
+    """按上游正文的形状（UTC+8 墙钟）表示一个时刻。"""
+    return time.strftime("%Y-%m-%d %H:%M:%S",
+                         time.gmtime(epoch + 8 * 3600)) + " UTC+8"
+
+
+_WALL = _wall_clock(_BASE)
+_LIVE_EPOCH = int(_BASE)
+
 # 上游 6004 的真实形状：英文与中文各一（parse_rate_limit_reset 认这两种）。
 DETAIL_EN = ("usage exceeds frequency limit, but don't worry, your usage will "
-             "reset at 2026-11-02 03:04:05 UTC+8")
-DETAIL_CN = "您的使用量已超出频率限制，将在 2026-11-02 03:04:05 UTC+8 重置"
+             "reset at " + _WALL)
+DETAIL_CN = "您的使用量已超出频率限制，将在 " + _WALL + " 重置"
 
 
 class HeaderHelperTests(unittest.TestCase):
     """纯函数：头怎么拼，拿不到时刻时怎么退避。"""
 
     def test_both_absolute_headers_are_emitted(self):
-        headers = dict(P.rate_limit_headers(1793600000))
-        self.assertEqual(headers["X-RateLimit-Reset"], "1793600000")
+        headers = dict(P.rate_limit_headers(_LIVE_EPOCH))
+        self.assertEqual(headers["X-RateLimit-Reset"], str(_LIVE_EPOCH))
         self.assertEqual(headers["X-RateLimit-Reset-At"],
                          time.strftime("%Y-%m-%dT%H:%M:%SZ",
-                                       time.gmtime(1793600000)))
+                                       time.gmtime(_LIVE_EPOCH)))
 
     def test_no_instant_means_no_headers(self):
         """宁可不说，也不能编一个恢复时刻出来。"""
@@ -67,8 +82,9 @@ class HeaderHelperTests(unittest.TestCase):
 
     def test_note_is_empty_without_an_instant(self):
         self.assertEqual(P.rate_limit_reset_note(None), "")
-        self.assertIn("resets at 2026-11-02T",
-                      P.rate_limit_reset_note(1793600000))
+        self.assertIn("resets at " + time.strftime("%Y-%m-%dT",
+                                                  time.gmtime(_LIVE_EPOCH)),
+                      P.rate_limit_reset_note(_LIVE_EPOCH))
 
 
 class ResetSourceTests(unittest.TestCase):
