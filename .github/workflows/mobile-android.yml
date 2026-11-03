@@ -58,6 +58,31 @@ jobs:
           python -m compileall -q wb_proxy.py wb_accounts.py wb_settings.py \
             mobile/shared mobile/android/app/src/main/python
 
+      # 固定 debug 签名。
+      # AGP 在 ~/.android/debug.keystore 缺失时会**现场生成**一对随机密钥：alias
+      # （androiddebugkey）和口令（android）都是固定值，密钥本身不是。托管 runner
+      # 每次都是全新虚拟机，于是每次构建的证书都不同——跨构建无法覆盖安装
+      # （INSTALL_FAILED_UPDATE_INCOMPATIBLE），依赖签名指纹的校验也会失效。
+      # 把一份固定 keystore 存进 secret，构建前还原，签名就稳定了。
+      - name: Restore fixed debug keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.WB_ANDROID_DEBUG_KEYSTORE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_B64:-}" ]; then
+            echo "::warning::未配置 WB_ANDROID_DEBUG_KEYSTORE：本次 debug keystore 由 AGP 随机生成，无法覆盖安装其它构建"
+            exit 0
+          fi
+          mkdir -p "$HOME/.android"
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$HOME/.android/debug.keystore"
+          chmod 600 "$HOME/.android/debug.keystore"
+          # 口令必须是 AGP 约定的 android，否则要等签名阶段才报错，很难定位。
+          keytool -list -keystore "$HOME/.android/debug.keystore" \
+            -storepass android -alias androiddebugkey >/dev/null
+          echo "debug keystore 已还原，证书指纹："
+          keytool -list -v -keystore "$HOME/.android/debug.keystore" \
+            -storepass android -alias androiddebugkey | grep -E "SHA256:" || true
+
       - name: Build APK
         working-directory: mobile/android
         run: gradle :app:assembleDebug :app:assembleRelease --stacktrace
@@ -68,6 +93,22 @@ jobs:
           # The gateway core must be inside the APK, not only in the source tree.
           unzip -l mobile/android/app/build/outputs/apk/release/*.apk \
             | grep -q "assets/core/wb_proxy.py"
+
+      # 把实际签进 APK 的证书打出来：签名是否固定，日志里一眼可查，不用下载对比。
+      - name: Report signing certificate
+        run: |
+          set -euo pipefail
+          APKSIGNER=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" \
+            -type f -name apksigner | sort -V | tail -n1)
+          if [ -z "$APKSIGNER" ]; then
+            echo "::warning::找不到 apksigner，跳过证书指纹打印"
+            exit 0
+          fi
+          for apk in mobile/android/app/build/outputs/apk/*/*.apk; do
+            echo "== $apk"
+            "$APKSIGNER" verify --print-certs "$apk" \
+              | grep -E "Signer #1 certificate SHA-256 digest" | head -n1
+          done
 
       - uses: actions/upload-artifact@v4
         with:
