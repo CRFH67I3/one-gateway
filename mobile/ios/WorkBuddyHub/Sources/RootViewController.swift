@@ -22,6 +22,12 @@ final class RootViewController: UIViewController {
     private var pauseWorkItem: DispatchWorkItem?
     private var bootstrapped = false
 
+    /// 最近一次拿到的网关状态。实时活动与设置页的「状态」都读这几个值。
+    private var lastAccounts = 0
+    private var lastUsable = 0
+    private var lastRunning = false
+    private var lastNote = "正在启动"
+
     private var baseURL: String { "http://127.0.0.1:\(Settings.port)/" }
     private var apiBase: String { "http://127.0.0.1:\(Settings.port)/v1" }
 
@@ -29,8 +35,31 @@ final class RootViewController: UIViewController {
         super.viewDidLoad()
         buildUI()
         observeLifecycle()
+        wireBackgroundKeepAlive()
         startGateway()
         startPolling()
+    }
+
+    /// 持续后台任务的状态变化：任务起来了就取消「20 秒后自断监听」的保底逻辑，
+    /// 任务到期则立刻停监听（避免内核已经回收套接字、面板还在等半死连接）。
+    private func wireBackgroundKeepAlive() {
+        BackgroundKeepAlive.shared.onChange = { [weak self] in
+            guard let self else { return }
+            if BackgroundKeepAlive.shared.isRunning {
+                self.pauseWorkItem?.cancel()
+                self.pauseWorkItem = nil
+                self.endBackgroundTask()
+                self.lastNote = "后台保持中"
+                self.syncLiveActivity(force: true)
+            }
+        }
+        BackgroundKeepAlive.shared.onExpire = { [weak self] in
+            guard let self else { return }
+            self.pauseGateway()
+            self.endBackgroundTask()
+        }
+        // 上一次进程被杀后，锁屏上的实时活动可能还挂着，启动时先清掉再按需重建。
+        LiveActivityController.shared.resetStale()
     }
 
     deinit {
@@ -119,6 +148,9 @@ final class RootViewController: UIViewController {
 
     private func observeLifecycle() {
         NotificationCenter.default.addObserver(
+            self, selector: #selector(willResignActive),
+            name: UIApplication.willResignActiveNotification, object: nil)
+        NotificationCenter.default.addObserver(
             self, selector: #selector(didEnterBackground),
             name: UIApplication.didEnterBackgroundNotification, object: nil)
         NotificationCenter.default.addObserver(
@@ -126,16 +158,31 @@ final class RootViewController: UIViewController {
             name: UIApplication.didBecomeActiveNotification, object: nil)
     }
 
+    /// 持续后台任务的请求必须在 App 仍算「前台」时提交，`willResignActive` 是最后一个
+    /// 这样的时机（用户刚按 Home / 锁屏，进程还没被挂起）；放到 `didEnterBackground`
+    /// 提交会被系统直接拒绝。
+    @objc private func willResignActive() {
+        BackgroundKeepAlive.shared.submit()
+    }
+
     @objc private func didEnterBackground() {
         spinner.stopAnimating()
+        // 持续后台任务已经在跑：后台时间由它接管，不能再按 20 秒的老规矩断监听。
+        if BackgroundKeepAlive.shared.isRunning { return }
         backgroundTask = UIApplication.shared.beginBackgroundTask { [weak self] in
             // 宽限期被系统提前切断：立刻停下监听，避免半死连接。
             self?.pauseGateway()
             self?.endBackgroundTask()
         }
         let work = DispatchWorkItem { [weak self] in
-            self?.pauseGateway()
-            self?.endBackgroundTask()
+            guard let self else { return }
+            // 任务可能在这 20 秒里才被系统拉起，起来了就交给它，别自断。
+            if BackgroundKeepAlive.shared.isRunning {
+                self.endBackgroundTask()
+                return
+            }
+            self.pauseGateway()
+            self.endBackgroundTask()
         }
         pauseWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: work)
@@ -145,6 +192,8 @@ final class RootViewController: UIViewController {
         pauseWorkItem?.cancel()
         pauseWorkItem = nil
         endBackgroundTask()
+        // 前台本来就有前台时间，把后台任务还给系统，锁屏上那张进度卡也随之撤掉。
+        BackgroundKeepAlive.shared.stop()
         guard bootstrapped else { return }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
@@ -164,10 +213,26 @@ final class RootViewController: UIViewController {
 
     private func pauseGateway() {
         guard bootstrapped else { return }
+        lastRunning = false
+        lastNote = "已暂停，回到前台自动恢复"
+        syncLiveActivity(force: true)
         let payload = self.payload()
         DispatchQueue.global(qos: .utility).async {
             _ = PyBridge.shared.call("stop", payload)
         }
+    }
+
+    /// 把最新状态推给自己的实时活动（锁屏卡片 / 灵动岛）。开关关着时这里会撤下卡片。
+    private func syncLiveActivity(force: Bool = false) {
+        LiveActivityController.shared.sync(
+            port: Settings.port,
+            accounts: lastAccounts,
+            usable: lastUsable,
+            requests: 0,
+            running: lastRunning,
+            note: lastNote,
+            force: force
+        )
     }
 
     // MARK: - 网关
@@ -219,11 +284,17 @@ final class RootViewController: UIViewController {
            state["running"] as? Bool != true {
             statusDot.backgroundColor = .systemRed
             statusLabel.text = "启动失败：\(error)"
+            lastRunning = false
+            lastNote = "启动失败"
+            syncLiveActivity(force: true)
             return
         }
         guard state["running"] as? Bool == true else {
             statusDot.backgroundColor = .systemGray3
             statusLabel.text = "网关已停止"
+            lastRunning = false
+            lastNote = "网关已停止"
+            syncLiveActivity(force: true)
             return
         }
         statusDot.backgroundColor = .systemGreen
@@ -231,6 +302,11 @@ final class RootViewController: UIViewController {
         let accounts = state["accounts"] as? Int ?? 0
         let usable = state["usable"] as? Int ?? 0
         statusLabel.text = "运行中 · 127.0.0.1:\(port) · 账号 \(usable)/\(accounts)"
+        lastAccounts = accounts
+        lastUsable = usable
+        lastRunning = true
+        lastNote = "网关运行中"
+        syncLiveActivity(force: true)
         loadDashboardIfNeeded()
     }
 
@@ -264,6 +340,8 @@ final class RootViewController: UIViewController {
             if statusLabel.text?.hasPrefix("运行中") == true {
                 statusDot.backgroundColor = .systemOrange
                 statusLabel.text = "正在恢复网关…"
+                lastNote = "正在恢复网关"
+                syncLiveActivity()
             }
             return
         }
@@ -272,6 +350,11 @@ final class RootViewController: UIViewController {
         let accounts = json["accounts"] as? Int ?? 0
         let usable = json["accounts_ready"] as? Int ?? 0
         statusLabel.text = "运行中 · 127.0.0.1:\(port) · 账号 \(usable)/\(accounts)"
+        lastAccounts = accounts
+        lastUsable = usable
+        lastRunning = true
+        lastNote = BackgroundKeepAlive.shared.isRunning ? "后台保持中" : "网关运行中"
+        syncLiveActivity()
         loadDashboardIfNeeded()
     }
 
@@ -293,6 +376,9 @@ final class RootViewController: UIViewController {
 
     @objc private func showMenu() {
         let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        sheet.addAction(UIAlertAction(title: "后台保持…", style: .default) { [weak self] _ in
+            self?.showBackgroundSettings()
+        })
         sheet.addAction(UIAlertAction(title: "复制 API 地址", style: .default) { [weak self] _ in
             guard let self else { return }
             let lan = Settings.lan ? (NetworkAddress.localIPv4() ?? "127.0.0.1") : "127.0.0.1"
@@ -324,8 +410,18 @@ final class RootViewController: UIViewController {
         present(sheet, animated: true)
     }
 
-    private func askPort() {
-        let alert = UIAlertController(title: "监听端口", message: "客户端里填这个端口。修改后会重启网关。",
+    /// 后台保持设置页：持续后台处理 + 锁屏/灵动岛实时活动三个开关。
+    private func showBackgroundSettings() {
+        let controller = BackgroundSettingsViewController()
+        controller.onChange = { [weak self] in
+            self?.syncLiveActivity(force: true)
+        }
+        let nav = UINavigationController(rootViewController: controller)
+        nav.modalPresentationStyle = .formSheet
+        present(nav, animated: true)
+    }
+
+    private func askPort() {        let alert = UIAlertController(title: "监听端口", message: "客户端里填这个端口。修改后会重启网关。",
                                       preferredStyle: .alert)
         alert.addTextField { field in
             field.keyboardType = .numberPad
@@ -372,7 +468,9 @@ final class RootViewController: UIViewController {
         面板：\(baseURL)
         API：\(apiBase)
 
-        提示：iOS 会在 App 进入后台后挂起进程，回到前台会自动恢复监听。
+        提示：iOS 26 起可用「持续后台处理」让网关在后台继续监听（系统会在锁屏和
+        灵动岛显示进度卡片）；也可以在「后台保持」里打开自己的锁屏/灵动岛实时活动。
+        更早的系统上，进入后台 20 秒后会暂停监听，回到前台自动恢复。
         """
         let alert = UIAlertController(title: "WorkBuddy 网关", message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "好", style: .default, handler: nil))

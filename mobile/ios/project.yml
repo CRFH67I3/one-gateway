@@ -24,11 +24,33 @@ settings:
     ENABLE_BITCODE: "NO"
 
 targets:
+  # 实时活动（Live Activity）的 Widget Extension：锁屏卡片 + 灵动岛。
+  # 单独一个 extension target 是 ActivityKit 的硬要求，App 内没法直接画锁屏卡片。
+  # 部署版本单独提到 16.1：Live Activity 就是从这个版本开始有的，主 App 仍保持 15。
+  WorkBuddyHubWidget:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "16.1"
+    sources:
+      - path: WorkBuddyHubWidget
+      # 与主 App 共享同一份 ActivityAttributes 定义（两边各编译一份，靠类型名配对）。
+      - path: Shared
+    settings:
+      base:
+        INFOPLIST_FILE: WorkBuddyHubWidget/Info.plist
+        GENERATE_INFOPLIST_FILE: "NO"
+        PRODUCT_BUNDLE_IDENTIFIER: com.workbuddy2api.hub.widget
+        PRODUCT_NAME: WorkBuddyHubWidget
+        SKIP_INSTALL: "YES"
+        TARGETED_DEVICE_FAMILY: "1,2"
+
   WorkBuddyHub:
     type: application
     platform: iOS
     sources:
       - path: WorkBuddyHub/Sources
+      # 实时活动的共享定义（与 Widget Extension 同一个文件）。
+      - path: Shared
       # 两个文件夹引用，整个目录原样进包，与 CPython 官方 iOS 指南的布局一一对应：
       #   Resources/app     → 包内 app/    可导入的 Python 代码（PYTHONPATH）
       #   Resources/python  → 包内 python/ CPython 标准库（PYTHONHOME，须保留
@@ -44,6 +66,9 @@ targets:
       - framework: Vendor/Python.xcframework
         embed: true
         codeSign: true
+      # appex 必须嵌入主包 PlugIns/，否则锁屏与灵动岛都不会出现卡片。
+      - target: WorkBuddyHubWidget
+        embed: true
     preBuildScripts:
       - name: Sync gateway core
         basedOnDependencyAnalysis: false

@@ -37,9 +37,14 @@ mobile/
     ├── WorkBuddyHub/Sources/
     │   ├── PyBridge.swift           # CPython C API 桥（GIL、PYTHONHOME/PYTHONPATH）
     │   ├── RootViewController.swift  # WKWebView 面板 + 前后台让位
+    │   ├── BackgroundKeepAlive.swift # iOS 26 持续后台任务（BGContinuedProcessingTask）
+    │   ├── LiveActivityController.swift  # 锁屏/灵动岛实时活动（ActivityKit）
+    │   ├── BackgroundSettingsViewController.swift  # 「后台保持」三个开关
     │   ├── CorePaths.swift          # 沙盒路径 / 外壳开关 / 局域网地址
     │   ├── WorkBuddyHub-Bridging-Header.h  # #include <Python/Python.h>
     │   └── AppDelegate.swift
+    ├── Shared/GatewayActivityAttributes.swift  # 主 App 与 Widget 共享的活动定义
+    ├── WorkBuddyHubWidget/          # Widget Extension：Live Activity 的锁屏/灵动岛视图
     ├── WorkBuddyHub/PythonBridge/wb_hub_ios.py
     └── WorkBuddyHub/Resources/       # 构建时生成（不入库）
         ├── app/                      # 核心代码 + 桥接层 + certifi → PYTHONPATH
@@ -76,8 +81,9 @@ mobile/
 
 | 主题 | Android | iOS |
 |---|---|---|
-| 进程存活 | 前台服务 + 常驻通知，息屏/切后台链路不断 | App 进后台 20 秒宽限后关闭监听，回前台自动恢复 |
-| 控制入口 | 通知栏「停止」、App 内菜单 | App 内菜单（没有常驻通知） |
+| 进程存活 | 前台服务 + 常驻通知，息屏/切后台链路不断 | iOS 26+：持续后台任务（`BGContinuedProcessingTask`）让网关在后台继续监听；更早系统上 20 秒宽限后关闭监听，回前台自动恢复 |
+| 锁屏/灵动岛 | — | 可选的实时活动（Live Activity）：锁屏卡片 + 灵动岛，两个独立开关 |
+| 控制入口 | 通知栏「停止」、App 内菜单 | App 内菜单（含「后台保持」设置页） |
 | 面板 | 系统 WebView + 下拉刷新 | `WKWebView` |
 | 面板 JS 弹窗 | `WebChromeClient` 把 `alert/confirm/prompt` 接到原生对话框；`target=_blank` 在同一 WebView 打开 | `WKUIDelegate` 提供同样的三个回调 |
 | 存储 | `filesDir/data`（accounts/usage/catalog/logs） | `Library/Application Support/data` |
@@ -85,6 +91,32 @@ mobile/
 | HTTPS 根证书 | Android 系统证书目录（`SSL_CERT_DIR`） | 随包 `certifi`（iOS 无系统 CA 路径） |
 | 局域网访问 | 绑 0.0.0.0，通知里给 IP；自动生成 API Key | 同左，另需「本地网络」权限 |
 | 版本号 | Gradle 从 `wb_proxy.py` 的 `server_version` 解析 | CI 从同一处解析并注入 `MARKETING_VERSION` |
+
+## iOS 后台保持与实时活动
+
+App 内菜单 →「后台保持」有三个开关，对应三种手段：
+
+| 开关 | 机制 | 关掉之后 |
+|---|---|---|
+| 持续后台处理 | iOS 26 的 `BGContinuedProcessingTask`：切到后台后系统继续给进程后台时间，并自动在锁屏/灵动岛生成一张带进度的系统卡片（用户可在卡片上取消） | 回到旧行为：进后台 20 秒后停监听 |
+| 锁屏实时活动 | 自己发起的 Live Activity（ActivityKit），锁屏上一张卡片显示端口、账号可用数、状态 | 立即 `end(.immediate)`，整张活动（含灵动岛）一起消失 |
+| 灵动岛显示 | 同一张 Live Activity 的紧凑/展开视图 | 灵动岛不再渲染内容，锁屏卡片保留 |
+
+几个实现上的硬约束，改动时别踩：
+
+- `BGTaskScheduler.register` 必须在 `didFinishLaunching` 里、且 identifier 出现在
+  Info.plist 的 `BGTaskSchedulerPermittedIdentifiers`，否则注册即抛异常；
+- 持续后台任务的**请求只能在 App 前台、且由用户操作触发**时提交，代码挂在
+  `willResignActive`（用户刚切走、还没进后台）。放进 `didEnterBackground` 会失败；
+- 必须持续上报 `task.progress`：长时间不动会被判定卡死，系统会引导用户取消。这里用
+  「一片 1800 秒、跑满再续一片」让进度单调递增、永远不到 100%（到 100% 系统会认为
+  任务完成，收回后台时间）；
+- 实时活动的锁屏与灵动岛是**同一张活动**，只能在 App 前台 `request`。所以「锁屏实时活动」
+  实际是总开关，关掉即 `end`；「灵动岛显示」通过 `ContentState` 里的标志位控制视图，
+  这样不用开 App Group（Widget Extension 直接读 `context.state`）；
+- Live Activity 的视图在 `WorkBuddyHubWidget` 这个 app-extension 里，主包必须把
+  `.appex` 嵌进 `PlugIns/`，否则卡片不会出现；
+- 未签名 IPA 里 appex 也是未签名的，用 AltStore / Sideloadly 重签时会一起处理嵌套 bundle。
 
 ## 构建
 
@@ -151,9 +183,11 @@ open WorkBuddyHub.xcodeproj                  # 选自己的 Team 后可真机运
 
 ## 已知限制
 
-1. **iOS 后台**：App 被切后台/锁屏后网关于 20 秒后停止监听，回到前台自动恢复。
-   这是 iOS 的平台约束（没有常驻后台服务），不是网关的行为差异。需要 24×7 常驻请用
-   Android、电脑版或 Docker。
+1. **iOS 后台**：iOS 26 起可以在「后台保持」里打开**持续后台处理**
+   （`BGContinuedProcessingTask`），切到后台后系统继续给网关后台时间，并在锁屏/灵动岛
+   显示一张进度卡片。时长由系统按电量与后台任务数量决定，到期后会停监听、回前台自动恢复。
+   iOS 26 以下没有这个能力，仍是 20 秒宽限后停止监听。需要 24×7 常驻请用 Android、
+   电脑版或 Docker。
 2. **账号导入**：电脑端 `.info` 凭据自 2026-09-24 起是加密信封，解密密钥要从未被
    扫描的桌面客户端进程内存里回收，手机上做不到。移动端请走面板的「+ 添加账号
    (OAuth)」完成登录；「导入账号凭证」只对未加密的旧格式文件有效。

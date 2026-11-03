@@ -57,5 +57,22 @@
     </dict>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
+    <!-- iOS 26 的持续后台任务（BGContinuedProcessingTask）。identifier 必须在这里
+         登记，否则 BGTaskScheduler.register 会直接抛异常。 -->
+    <key>BGTaskSchedulerPermittedIdentifiers</key>
+    <array>
+        <string>com.workbuddy2api.hub.gateway</string>
+    </array>
+    <!-- BGTaskScheduler 的通用前提：声明 processing 后台模式。 -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>processing</string>
+    </array>
+    <!-- 自己的实时活动（锁屏卡片 + 灵动岛）。不开这个键，Activity.request 会抛
+         ActivityAuthorizationError。FrequentUpdates 允许网关状态较快地刷新卡片。 -->
+    <key>NSSupportsLiveActivities</key>
+    <true/>
+    <key>NSSupportsLiveActivitiesFrequentUpdates</key>
+    <true/>
 </dict>
 </plist>

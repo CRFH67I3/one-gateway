@@ -28,6 +28,33 @@ struct CorePaths {
 enum Settings {
     private static let portKey = "hub.port"
     private static let lanKey = "hub.lan"
+    private static let keepAliveKey = "hub.keepAlive"
+    private static let liveActivityKey = "hub.liveActivity"
+    private static let dynamicIslandKey = "hub.dynamicIsland"
+
+    /// 旧版本没写过这个键时用调用方给的默认值，而不是 `Bool()` 的 false。
+    private static func storedBool(_ key: String, default fallback: Bool) -> Bool {
+        guard UserDefaults.standard.object(forKey: key) != nil else { return fallback }
+        return UserDefaults.standard.bool(forKey: key)
+    }
+
+    /// iOS 26 的持续后台任务。默认开：这是目前唯一能让网关在后台继续监听的手段。
+    static var keepAlive: Bool {
+        get { storedBool(keepAliveKey, default: true) }
+        set { UserDefaults.standard.set(newValue, forKey: keepAliveKey) }
+    }
+
+    /// 自己的实时活动（锁屏卡片 + 灵动岛）。默认关，避免一上来就占用户的锁屏。
+    static var liveActivity: Bool {
+        get { storedBool(liveActivityKey, default: false) }
+        set { UserDefaults.standard.set(newValue, forKey: liveActivityKey) }
+    }
+
+    /// 灵动岛的紧凑/展开视图。实时活动关掉时这个开关无意义。
+    static var dynamicIsland: Bool {
+        get { storedBool(dynamicIslandKey, default: true) }
+        set { UserDefaults.standard.set(newValue, forKey: dynamicIslandKey) }
+    }
 
     static var port: Int {
         get {

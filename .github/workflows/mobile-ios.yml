@@ -44,16 +44,23 @@ env:
 
 jobs:
   build:
-    # 工程按 xcode15_3 格式生成（见 mobile/ios/project.yml），Xcode 15 就能读；
-    # macos-14 的 arm64 机器比 macos-15 更容易排到（macos-15 长期报
-    # "The job was not acquired by Runner of type hosted"）。
-    runs-on: macos-14
+    # iOS 26 的持续后台任务（BGContinuedProcessingTask）与新版 ActivityKit 必须用
+    # iOS 26 SDK 才能编译，因此镜像要能提供 Xcode 26；macos-14 已停止支持。
+    # 镜像默认 Xcode 仍是 16.x，下面显式切到 26。
+    runs-on: macos-15
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
-      - name: Report toolchain
+      - name: Select Xcode 26
         run: |
+          ls -d /Applications/Xcode*.app || true
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -n1)
+          if [ -z "${XCODE}" ]; then
+            echo "::error::runner 上没有 Xcode 26，iOS 26 API 无法编译"
+            exit 1
+          fi
+          sudo xcode-select -s "${XCODE}"
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-version
 
@@ -137,6 +144,14 @@ jobs:
           ls -d "$APP"/python/lib/python3.*/os.py >/dev/null
           ls -d "$APP"/python/lib/python3.*/encodings/__init__.py >/dev/null
           test -d "$APP/Frameworks/Python.framework"
+          # 实时活动：appex 必须在 PlugIns/ 里，且主包 Info.plist 声明了 Live Activity
+          # 与持续后台任务的 identifier（缺任一项，锁屏/灵动岛或后台保活就是静默失效）。
+          test -d "$APP/PlugIns/WorkBuddyHubWidget.appex"
+          test -f "$APP/PlugIns/WorkBuddyHubWidget.appex/WorkBuddyHubWidget"
+          /usr/libexec/PlistBuddy -c "Print :NSSupportsLiveActivities" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :BGTaskSchedulerPermittedIdentifiers:0" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :NSExtension:NSExtensionPointIdentifier" \
+            "$APP/PlugIns/WorkBuddyHubWidget.appex/Info.plist"
           du -sh "$APP"
 
       - name: Package unsigned IPA
