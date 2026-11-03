@@ -105,9 +105,12 @@ App 内菜单 →「后台保持」有三个开关，对应三种手段：
 几个实现上的硬约束，改动时别踩：
 
 - `BGTaskScheduler.register` 必须在 `didFinishLaunching` 里、且 identifier 出现在
-  Info.plist 的 `BGTaskSchedulerPermittedIdentifiers`，否则注册即抛异常；
-- 持续后台任务的**请求只能在 App 前台、且由用户操作触发**时提交，代码挂在
-  `willResignActive`（用户刚切走、还没进后台）。放进 `didEnterBackground` 会失败；
+  Info.plist 的 `BGTaskSchedulerPermittedIdentifiers`（同时要有 `UIBackgroundModes:
+  processing`），否则注册即抛异常 / 提交被拒；
+- 持续后台任务的**请求只能在 App 前台、且由用户操作触发**时提交。所以提交点有两个：
+  打开开关的那一刻（最稳，App 明确在前台），以及 `willResignActive`（用户刚切走、
+  还没进后台）作为兜底。放进 `didEnterBackground` 一定失败；不用 GPU 就不需要额外
+  entitlement（`Background GPU Access` 只在 `requiredResources = .gpu` 时才要）；
 - 必须持续上报 `task.progress`：长时间不动会被判定卡死，系统会引导用户取消。这里用
   「一片 1800 秒、跑满再续一片」让进度单调递增、永远不到 100%（到 100% 系统会认为
   任务完成，收回后台时间）；
@@ -116,7 +119,12 @@ App 内菜单 →「后台保持」有三个开关，对应三种手段：
   这样不用开 App Group（Widget Extension 直接读 `context.state`）；
 - Live Activity 的视图在 `WorkBuddyHubWidget` 这个 app-extension 里，主包必须把
   `.appex` 嵌进 `PlugIns/`，否则卡片不会出现；
-- 未签名 IPA 里 appex 也是未签名的，用 AltStore / Sideloadly 重签时会一起处理嵌套 bundle。
+- 未签名 IPA 里 appex 也是未签名的，用 AltStore / Sideloadly 重签时会一起处理嵌套 bundle；
+- 主 target 的部署版本是 **iOS 15**，而 ActivityKit 要 16.1，所以 `GatewayActivityAttributes`
+  带 `@available(iOS 16.1, *)`，控制器里 `Activity` / `ContentState` 用 `Any?` 擦除存取
+  （与 `BGContinuedProcessingTask` 存成 `AnyObject` 同理）。直接写成存储属性会报
+  `'Activity' is only available in iOS 16.1 or newer`。另外 `Task` / `DispatchQueue`
+  的逃逸闭包**不继承**外层可用性，闭包体里要再判一次 `#available`。
 
 ## 构建
 
