@@ -107,6 +107,16 @@ open WorkBuddyHub.xcodeproj                  # 选自己的 Team 后可真机运
   本地 Xcode 配 Team 签名后才能装；
 - 真机首次运行到「设置 → 通用 → VPN 与设备管理」信任开发者证书。
 
+接入 `Python.framework` 踩过的两个坑（`project.yml` 里都有注释，别改回去）：
+
+1. **不要**给 `Python.xcframework` 手动加 `FRAMEWORK_SEARCH_PATHS`。Xcode 会把切片里的
+   `Python.framework` 复制到 `$(BUILT_PRODUCTS_DIR)` 并自动加进搜索路径；再指一份
+   `Vendor/` 下的副本，clang 会同时看到两个 `Headers/module.modulemap`，报
+   `redefinition of module 'Python'`。
+2. 桥接头的头文件搜索路径要指 `$(BUILT_PRODUCTS_DIR)/Python.framework/Headers`。
+   `module.modulemap` 位于 `Headers/` 下，不把该目录放进搜索路径会报
+   `module 'Python' ... is not defined in any loaded module map file`。
+
 ## CI
 
 | 工作流 | 触发 | 产物 |
