@@ -13,30 +13,47 @@ import UIKit
 /// iOS 的约束：同一个 App 同一时刻只会有一张我们自己的实时活动在展示，且只能在
 /// **前台**创建；后台只能更新已存在的那一张。所以 `request` 只在设置页操作或前台
 /// 轮询时发生。
+///
+/// 部署版本是 15.0，而 ActivityKit 从 16.1 才有：`Activity<...>` 不能直接声明成存储
+/// 属性（会报 'Activity' is only available in iOS 16.1 or newer），所以存储用 `Any?`
+/// 擦除，具体类型只在 @available 分支里还原——和 `BackgroundKeepAlive` 把
+/// `BGContinuedProcessingTask` 存成 `AnyObject` 是同一个理由。
 final class LiveActivityController {
 
     static let shared = LiveActivityController()
 
-    private var activity: Activity<GatewayActivityAttributes>?
-    private var lastState: GatewayActivityAttributes.ContentState?
+    private var activityRef: Any?
+    private var stateRef: Any?
     private var lastUpdateAt = Date.distantPast
     private(set) var lastError: String?
 
     /// 更新节流：Live Activity 的刷新有系统预算，没必要 3 秒一次全量推。
     private let minInterval: TimeInterval = 10
 
-    var isActive: Bool { activity != nil }
+    var isActive: Bool {
+        if #available(iOS 16.2, *) { return activity != nil }
+        return false
+    }
+
+    // MARK: - 类型擦除的存取
+
+    @available(iOS 16.2, *)
+    private var activity: Activity<GatewayActivityAttributes>? {
+        get { activityRef as? Activity<GatewayActivityAttributes> }
+        set { activityRef = newValue }
+    }
+
+    @available(iOS 16.2, *)
+    private var lastState: GatewayActivityAttributes.ContentState? {
+        get { stateRef as? GatewayActivityAttributes.ContentState }
+        set { stateRef = newValue }
+    }
 
     /// App 启动时清掉上一次进程遗留的活动（App 被杀后卡片可能还挂在锁屏上）。
     func resetStale() {
         guard #available(iOS 16.2, *) else { return }
         Task { @MainActor in
-            for stale in Activity<GatewayActivityAttributes>.activities {
-                await stale.end(nil, dismissalPolicy: .immediate)
-            }
-            self.activity = nil
-            self.lastState = nil
-            self.lastUpdateAt = .distantPast
+            if #available(iOS 16.2, *) { await self.resetStaleNow() }
         }
     }
 
@@ -56,9 +73,7 @@ final class LiveActivityController {
 
         // 总开关关掉就立刻移除卡片，而不是等它自己过期。
         guard Settings.liveActivity, running else {
-            if activity != nil {
-                Task { @MainActor in await self.end() }
-            }
+            endNow()
             return
         }
 
@@ -84,25 +99,39 @@ final class LiveActivityController {
             return
         }
 
-        Task { @MainActor in await self.apply(state, port: port) }
+        Task { @MainActor in
+            if #available(iOS 16.2, *) { await self.apply(state, port: port) }
+        }
     }
 
     /// 关闭开关、或网关停掉时调用：立即从锁屏和灵动岛移除。
     func endNow() {
         guard #available(iOS 16.2, *) else { return }
-        guard activity != nil else { return }
+        guard let current = activity else { return }
         // 同步把状态清掉，设置页 reload 时「立即移除」那行才会立刻消失；
         // 真正的 end 是异步的，交给 MainActor 去做。
-        let current = activity
         activity = nil
         lastState = nil
         lastUpdateAt = .distantPast
         Task { @MainActor in
-            await current?.end(nil, dismissalPolicy: .immediate)
+            if #available(iOS 16.2, *) {
+                await current.end(nil, dismissalPolicy: .immediate)
+            }
         }
     }
 
-    // MARK: - 内部
+    // MARK: - iOS 16.2+
+
+    @available(iOS 16.2, *)
+    @MainActor
+    private func resetStaleNow() async {
+        for stale in Activity<GatewayActivityAttributes>.activities {
+            await stale.end(nil, dismissalPolicy: .immediate)
+        }
+        activity = nil
+        lastState = nil
+        lastUpdateAt = .distantPast
+    }
 
     @available(iOS 16.2, *)
     @MainActor
@@ -134,15 +163,5 @@ final class LiveActivityController {
         } catch {
             lastError = error.localizedDescription
         }
-    }
-
-    @available(iOS 16.2, *)
-    @MainActor
-    private func end() async {
-        let current = activity
-        activity = nil
-        lastState = nil
-        lastUpdateAt = .distantPast
-        await current?.end(nil, dismissalPolicy: .immediate)
     }
 }

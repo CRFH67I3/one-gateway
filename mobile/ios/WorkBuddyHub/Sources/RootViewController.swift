@@ -421,7 +421,8 @@ final class RootViewController: UIViewController {
         present(nav, animated: true)
     }
 
-    private func askPort() {        let alert = UIAlertController(title: "监听端口", message: "客户端里填这个端口。修改后会重启网关。",
+    private func askPort() {
+        let alert = UIAlertController(title: "监听端口", message: "客户端里填这个端口。修改后会重启网关。",
                                       preferredStyle: .alert)
         alert.addTextField { field in
             field.keyboardType = .numberPad

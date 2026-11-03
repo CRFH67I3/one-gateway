@@ -9,6 +9,10 @@ import Foundation
 ///
 /// 这样也就不需要 App Group —— 锁屏 / 灵动岛的显隐开关直接放进 `ContentState`，
 /// 每次 `update` 跟着内容一起下发，Widget 侧从 `context.state` 里读就行。
+/// 这份定义也编进主 App（部署版本 15.0），而 `ActivityAttributes` 从 iOS 16.1 才有，
+/// 不标可用性会报「conformance ... is only available in iOS 16.1 or newer」。
+/// 主 App 里所有用到它的地方都包在 @available 分支内，低版本上直接跳过。
+@available(iOS 16.1, *)
 struct GatewayActivityAttributes: ActivityAttributes {
 
     /// 会变的部分。
