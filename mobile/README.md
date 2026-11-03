@@ -161,7 +161,8 @@ open WorkBuddyHub.xcodeproj                  # 选自己的 Team 后可真机运
 4. **端口**：默认 8788，可在设置里改；改端口或局域网开关会重启网关。
 5. **首次启动较慢**：要解压核心、初始化账号池与模型目录（几秒），期间面板显示
    「正在启动」。
-6. **旋转屏幕会重载面板（Android）**：`MainActivity` 声明了 `configChanges`，旋转不重建
-   Activity，WebView 因此沿用上一个方向的页面缩放——竖屏转横屏后右侧按钮（关闭网关、
-   修改密码、添加 API Key）会被挤出屏幕。现在宽度变化时重载一次让 WebView 重算缩放；
-   面板从 URL 里的 `?tab=` 恢复页签，登录态在 cookie 里不受影响。
+6. **旋转屏幕会重建界面（Android）**：清单里只放行 `keyboardHidden`，旋转时 Activity 重建。
+   放行 `orientation|screenSize` 时 Activity 不重建，WebView 会留着上一次的页面缩放，
+   横屏右侧约 12% 的按钮（关闭网关、修改密码、添加 API Key）被挤出屏幕；实测
+   `reload()` 清不掉这个缩放，只有新建的 WebView 才会按新视口重算。网关跑在前台服务里，
+   界面重建不影响监听；面板从 URL 的 `?tab=` 恢复页签，登录态在 cookie 里不受影响。

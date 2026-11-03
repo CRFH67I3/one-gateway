@@ -18,9 +18,13 @@
         android:theme="@style/Theme.Hub"
         android:usesCleartextTraffic="true">
 
+        <!-- 旋转不放行：让 Activity 重建，WebView 才会按新视口重算页面缩放。
+             声明 orientation|screenSize 时系统不重建，WebView 会留着上一次的
+             pinch 缩放（横屏右侧按钮被裁掉，reload 也清不掉，只有新 WebView 才行）。
+             网关跑在前台服务里，界面重建不影响监听。 -->
         <activity
             android:name=".MainActivity"
-            android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout"
+            android:configChanges="keyboardHidden"
             android:exported="true"
             android:launchMode="singleTask">
             <intent-filter>
