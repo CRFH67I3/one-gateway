@@ -83,6 +83,7 @@ final class BackgroundSettingsViewController: UITableViewController {
                             }
                             self?.changed()
                         })
+                )
             ]
         ))
 

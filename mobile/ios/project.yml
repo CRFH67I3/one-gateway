@@ -33,6 +33,9 @@ targets:
     deploymentTarget: "16.1"
     sources:
       - path: WorkBuddyHubWidget
+        # 这个 plist 走 INFOPLIST_FILE，不能再当资源复制，否则 "Multiple commands produce Info.plist"。
+        excludes:
+          - "Info.plist"
       # 与主 App 共享同一份 ActivityAttributes 定义（两边各编译一份，靠类型名配对）。
       - path: Shared
     settings:

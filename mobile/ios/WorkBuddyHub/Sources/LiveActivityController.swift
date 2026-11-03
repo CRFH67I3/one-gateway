@@ -113,7 +113,7 @@ final class LiveActivityController {
             staleDate: Date().addingTimeInterval(300)
         )
 
-        if let activity {
+        if let activity = activity {
             await activity.update(content)
             lastState = state
             lastUpdateAt = Date()
