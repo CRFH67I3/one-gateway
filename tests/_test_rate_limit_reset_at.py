@@ -40,36 +40,32 @@ import wb_proxy as P          # noqa: E402
 
 MODEL = "deepseek-v4.1-flash"
 
-# 样本里的墙钟必须始终落在**未来**。这些用例验证的是「上游给了一个还能用的
-# 时刻」，被测代码会（正确地）丢弃已经过去的时刻；写死日期在那天过后就会
-# 从绿变红——那是测试自己的时间炸弹，不是被测逻辑的回归。
-_BASE = time.time() + 2 * 3600          # 两小时后，足够跑完整个套件
-
-
-def _wall_clock(epoch):
-    """按上游正文的形状（UTC+8 墙钟）表示一个时刻。"""
-    return time.strftime("%Y-%m-%d %H:%M:%S",
-                         time.gmtime(epoch + 8 * 3600)) + " UTC+8"
-
-
-_WALL = _wall_clock(_BASE)
-_LIVE_EPOCH = int(_BASE)
-
 # 上游 6004 的真实形状：英文与中文各一（parse_rate_limit_reset 认这两种）。
+# 时刻按运行时钟往前推，不写死：正文里的墙钟必须是「还没过去」的，否则
+# `_usable_reset_epoch` 会按设计把它当成陈旧响应丢掉——写死日期等于给这套件
+# 装了个定时器，发布次日自己变红（v1.10.1 就是栽在这里）。UTC+8 后缀保留，
+# 偏移换算改由 `SAMPLE_RESET_AT` 这个绝对 epoch 钉住（见 ResetSourceTests）：
+# 只写「parse 出来的值与 parse 出来的值相等」是两边同源的循环断言，解析器
+# 把整个偏移吃掉也照样全绿。
+SAMPLE_RESET_IN = 600
+SAMPLE_RESET_AT = int(time.time()) + SAMPLE_RESET_IN
+SAMPLE_RESET_STAMP = time.strftime("%Y-%m-%d %H:%M:%S",
+                                   time.gmtime(SAMPLE_RESET_AT + 8 * 3600))
 DETAIL_EN = ("usage exceeds frequency limit, but don't worry, your usage will "
-             "reset at " + _WALL)
-DETAIL_CN = "您的使用量已超出频率限制，将在 " + _WALL + " 重置"
+             "reset at %s UTC+8" % SAMPLE_RESET_STAMP)
+DETAIL_CN = "您的使用量已超出频率限制，将在 %s UTC+8 重置" % SAMPLE_RESET_STAMP
 
 
 class HeaderHelperTests(unittest.TestCase):
     """纯函数：头怎么拼，拿不到时刻时怎么退避。"""
 
     def test_both_absolute_headers_are_emitted(self):
-        headers = dict(P.rate_limit_headers(_LIVE_EPOCH))
-        self.assertEqual(headers["X-RateLimit-Reset"], str(_LIVE_EPOCH))
+        reset_at = int(time.time()) + 600
+        headers = dict(P.rate_limit_headers(reset_at))
+        self.assertEqual(headers["X-RateLimit-Reset"], str(reset_at))
         self.assertEqual(headers["X-RateLimit-Reset-At"],
                          time.strftime("%Y-%m-%dT%H:%M:%SZ",
-                                       time.gmtime(_LIVE_EPOCH)))
+                                       time.gmtime(reset_at)))
 
     def test_no_instant_means_no_headers(self):
         """宁可不说，也不能编一个恢复时刻出来。"""
@@ -82,9 +78,12 @@ class HeaderHelperTests(unittest.TestCase):
 
     def test_note_is_empty_without_an_instant(self):
         self.assertEqual(P.rate_limit_reset_note(None), "")
-        self.assertIn("resets at " + time.strftime("%Y-%m-%dT",
-                                                  time.gmtime(_LIVE_EPOCH)),
-                      P.rate_limit_reset_note(_LIVE_EPOCH))
+        reset_at = int(time.time()) + 600
+        # 整串比对而不是只比日期前缀：期望值由组成的算式给出，不拿喂进去的
+        # 值反过来当期望，否则「正文里的时刻其实取的是 now()」这种错看不见。
+        self.assertEqual(P.rate_limit_reset_note(reset_at),
+                         " (resets at %s)" % time.strftime(
+                             "%Y-%m-%dT%H:%M:%SZ", time.gmtime(reset_at)))
 
 
 class ResetSourceTests(unittest.TestCase):
@@ -94,6 +93,9 @@ class ResetSourceTests(unittest.TestCase):
         exc = P.RateLimited(None, DETAIL_EN, wait=60)
         parsed = P.parse_rate_limit_reset(DETAIL_EN)
         self.assertIsNotNone(parsed)
+        # 夹具自己钉在绝对 epoch 上：别的用例都是 parse 对 parse，同源到
+        # 解析器把 UTC+8 偏移整个吃掉（offset=0）也全绿。
+        self.assertEqual(parsed, SAMPLE_RESET_AT)
         self.assertEqual(P.rate_limit_reset_at(exc), int(parsed))
 
     def test_chinese_wording_is_understood_too(self):
