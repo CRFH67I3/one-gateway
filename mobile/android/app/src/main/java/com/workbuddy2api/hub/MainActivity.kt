@@ -6,6 +6,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -55,6 +56,7 @@ class MainActivity : Activity() {
     private val io = Executors.newSingleThreadExecutor()
     private val ui = Handler(Looper.getMainLooper())
     private var loadedUrl: String? = null
+    private var lastViewportWidth = 0
 
     private data class Health(val reachable: Boolean, val accounts: Int, val usable: Int)
 
@@ -96,6 +98,7 @@ class MainActivity : Activity() {
 
     private fun configureWebView() {
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
+        lastViewportWidth = resources.displayMetrics.widthPixels
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -135,6 +138,21 @@ class MainActivity : Activity() {
     override fun onPause() {
         ui.removeCallbacks(poller)
         super.onPause()
+    }
+
+    /**
+     * Activity 在清单里声明了 configChanges，旋转不会重建，WebView 也就不会重算初始缩放：
+     * 竖屏转横屏后页面仍按竖屏的缩放比渲染，右侧约 12% 的按钮（关闭网关、修改密码、
+     * 添加 API Key 等）被挤出屏幕，只能横向拖着找。宽度真的变了就重载一次，让 WebView
+     * 按新视口重新布局；面板会从 URL 里的 ?tab= 恢复当前页签，登录态在 cookie 里不受影响。
+     */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val width = resources.displayMetrics.widthPixels
+        if (width != lastViewportWidth) {
+            lastViewportWidth = width
+            webView.reload()
+        }
     }
 
     override fun onDestroy() {
