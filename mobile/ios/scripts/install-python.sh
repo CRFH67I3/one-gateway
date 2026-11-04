@@ -138,7 +138,13 @@ PLIST
 done
 
 if [ "$converted" -eq 0 ]; then
-    echo "error: $DYNLOAD 里没有可转换的 .so，标准库合并失败" >&2
+    # 增量构建时 Xcode 可能判定资源未变、没把 .so 重新拷进 bundle，上一次已经
+    # 转过的 .fwork 还在——这是正常状态，不能再报错（否则第二次 Run 直接失败）。
+    if ls "$DYNLOAD"/*.fwork >/dev/null 2>&1 && [ -d "$APP/Frameworks/_sha1.framework" ]; then
+        echo "already converted ($(ls "$DYNLOAD"/*.fwork | wc -l | tr -d ' ') .fwork present), nothing to do"
+        exit 0
+    fi
+    echo "error: $DYNLOAD 里既没有 .so 也没有 .fwork，标准库合并失败" >&2
     exit 1
 fi
 
