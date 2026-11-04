@@ -33,7 +33,8 @@ mobile/
 │   └── app/build.gradle.kts         # 版本号从 wb_proxy.py 解析，核心同步任务
 └── ios/                         # Swift 外壳 + 内嵌 Python.framework
     ├── project.yml                  # XcodeGen 工程描述
-    ├── scripts/sync-core.sh         # 复制核心 + 铺标准库 + 安装 certifi
+    ├── scripts/sync-core.sh         # 复制核心 + 铺标准库（含二进制扩展）+ 装 certifi
+    ├── scripts/install-python.sh    # 构建后：lib-dynload 的 .so 转 Frameworks/*.framework
     ├── WorkBuddyHub/Sources/
     │   ├── PyBridge.swift           # CPython C API 桥（GIL、PYTHONHOME/PYTHONPATH）
     │   ├── RootViewController.swift  # WKWebView 面板 + 前后台让位
@@ -68,11 +69,22 @@ mobile/
 |---|---|---|
 | `app/` | `wb_*.py`、`dashboard.html`、`wb_hub_ios.py`、`certifi/` | `PYTHONPATH` |
 | `python/lib/python3.13/`（含 `lib-dynload`） | CPython 标准库 | `PYTHONHOME` |
+| `Frameworks/_sha1.framework` 等 68 个 | 标准库的二进制扩展（`_hashlib`、`_socket`、`_ssl`…） | App 内 `dlopen` |
 | `Frameworks/Python.framework` | 解释器本体（XCFramework 切片） | 链接 + 嵌入 |
 
 标准库必须落在 `python/lib/pythonX.Y` 这一层：CPython 的 getpath 把 `PYTHONHOME`
 当 prefix、只认 `prefix/lib/pythonX.Y`。平铺在 `Resources/python` 下解释器能起来，
 但一 import 就报 `No module named 'encodings'`。
+
+**二进制扩展必须转成 framework**。iOS 不允许 app 包里出现 `Frameworks/` 之外的
+可执行二进制，`lib-dynload` 里的 `.so` 即使拷进去也不会被签名，`dlopen` 一律失败。
+症状是启动即报 `AttributeError: module 'hashlib' has no attribute 'sha1'`——CPython
+的 hashlib 要么走 `_hashlib`、要么走 `_sha1`，都是扩展模块；同样废掉的还有
+`_socket` / `_ssl` / `_json`，网关连端口都监听不了。所以 `install-python.sh` 在
+构建后把每个 `.so` 移进 `Frameworks/<名字>.framework/`，并在原位置留一个 `.fwork`
+指针、在 framework 里留 `.origin` 指回来（CPython `AppleFrameworkLoader` 的约定）。
+支持包的这两部分是分开的：`lib/python3.13` 只有纯 Python，68 个 `.so` 在
+`ios-arm64/lib-arm64/python3.13/lib-dynload` 下，`sync-core.sh` 会把两者合并。
 
 面板同理：`dashboard.html` 是「同源静态页 + JSON 接口」，WebView 直接打开
 `http://127.0.0.1:8788/` 就等于移植了全部界面与交互，面板以后加功能 App 不用改。

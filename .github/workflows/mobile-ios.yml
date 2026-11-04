@@ -8,6 +8,12 @@ name: mobile-ios
 # scripts/sync-core.sh under Resources/python/lib/python3.x (PYTHONHOME) and the
 # app code under Resources/app (PYTHONPATH), per CPython's iOS guide.
 #
+# scripts/install-python.sh then runs as a post-build step and converts the 68
+# binary extension modules in lib-dynload (_hashlib, _sha1, _socket, _ssl, ...)
+# into Frameworks/<name>.framework, leaving .fwork pointers behind. iOS refuses
+# to dlopen a bare .so: without this step the app dies on launch with
+# "AttributeError: module 'hashlib' has no attribute 'sha1'".
+#
 # The produced IPA is intentionally *unsigned*: signing needs the maintainer's
 # team ID and certificate, which must not live in this repository. Sideload
 # tools (AltStore/Sideloadly) or a local Xcode build with a team can sign it.
@@ -30,7 +36,6 @@ on:
       - "dashboard.html"
       - "mobile/**"
       - ".github/workflows/mobile-ios.yml"
-  workflow_dispatch:
 
 concurrency:
   group: mobile-ios-${{ github.ref }}
@@ -98,11 +103,14 @@ jobs:
 
       - name: Sync gateway core
         run: |
-          chmod +x mobile/ios/scripts/sync-core.sh
+          chmod +x mobile/ios/scripts/sync-core.sh mobile/ios/scripts/install-python.sh
           mobile/ios/scripts/sync-core.sh
           ls mobile/ios/WorkBuddyHub/Resources/app | head -5
           # 标准库必须落在 python/lib/pythonX.Y 这一层，否则运行时 import 全失败。
           ls -d mobile/ios/WorkBuddyHub/Resources/python/lib/python3.*
+          # 二进制扩展也必须在（_sha1/_hashlib/_socket/_ssl），它们只在设备切片的
+          # lib-arm64 下，漏了就是「hashlib has no attribute sha1」。
+          ls mobile/ios/WorkBuddyHub/Resources/python/lib/python3.*/lib-dynload/_sha1*.so
 
       # iOS 上 OpenSSL 没有系统 CA 路径，上游 HTTPS 必须靠随包的证书束。
       - name: Install CA bundle
@@ -146,6 +154,21 @@ jobs:
           ls -d "$APP"/python/lib/python3.*/os.py >/dev/null
           ls -d "$APP"/python/lib/python3.*/encodings/__init__.py >/dev/null
           test -d "$APP/Frameworks/Python.framework"
+          # 二进制扩展必须已经转成 framework 并留下 .fwork 指针：这是 iOS 上
+          # 唯一能被 dlopen 的形态。缺了它，App 启动即报
+          #   AttributeError: module 'hashlib' has no attribute 'sha1'
+          # 接着 _socket / _ssl 也全废，网关根本监听不了端口。
+          ls "$APP"/python/lib/python3.*/lib-dynload/_sha1*.fwork >/dev/null
+          test -d "$APP/Frameworks/_sha1.framework"
+          test -d "$APP/Frameworks/_hashlib.framework"
+          test -d "$APP/Frameworks/_socket.framework"
+          test -d "$APP/Frameworks/_ssl.framework"
+          # 反向校验：Frameworks 之外不许残留可执行的 .so（App Store 会拒）。
+          stray=$(find "$APP" -name '*.so' -not -path "*/Frameworks/*" | head -n 1)
+          if [ -n "$stray" ]; then
+            echo "::error::Frameworks 之外仍有 .so 二进制：$stray"
+            exit 1
+          fi
           # 实时活动：appex 必须在 PlugIns/ 里，且主包 Info.plist 声明了 Live Activity
           # 与持续后台任务的 identifier（缺任一项，锁屏/灵动岛或后台保活就是静默失效）。
           test -d "$APP/PlugIns/WorkBuddyHubWidget.appex"

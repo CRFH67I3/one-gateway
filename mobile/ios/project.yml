@@ -77,6 +77,17 @@ targets:
         basedOnDependencyAnalysis: false
         script: |
           "$SRCROOT/scripts/sync-core.sh"
+    # CPython 的二进制扩展（lib-dynload 里的 68 个 .so：_hashlib、_sha1、
+    # _socket、_ssl……）必须转成 Frameworks/<name>.framework 才能被 iOS 加载，
+    # 并在原位置留下 .fwork 指针。这一步跑在资源拷贝与 framework 嵌入之后、
+    # app 签名之前，因此脚本自己给新建的 framework 签名。
+    # 漏掉它的症状就是启动即报
+    #   AttributeError: module 'hashlib' has no attribute 'sha1'
+    postBuildScripts:
+      - name: Process Python libraries
+        basedOnDependencyAnalysis: false
+        script: |
+          "$SRCROOT/scripts/install-python.sh"
     settings:
       base:
         INFOPLIST_FILE: WorkBuddyHub/Info.plist

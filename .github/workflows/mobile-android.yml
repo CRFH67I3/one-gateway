@@ -26,7 +26,6 @@ on:
       - "dashboard.html"
       - "mobile/**"
       - ".github/workflows/mobile-android.yml"
-  workflow_dispatch:
 
 concurrency:
   group: mobile-android-${{ github.ref }}

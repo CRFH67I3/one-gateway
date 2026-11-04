@@ -80,12 +80,21 @@ find_stdlib() {
 }
 
 # 标准库：铺进 Resources/python/lib/<pythonX.Y>。
+#
+# 支持包把标准库拆成两份，缺一不可：
+#   lib/python3.13/                  纯 Python（os.py、encodings/、hashlib.py……）
+#   ios-arm64/lib-arm64/python3.13/  二进制扩展，全在 lib-dynload 下（68 个 .so：
+#                                    _hashlib、_sha1、_socket、_ssl、_json、zlib……）
+# 只拷共享那份时解释器能起来（os.py 在），但一 import 就露馅：
+#   AttributeError: module 'hashlib' has no attribute 'sha1'
+# 因为 CPython 的 hashlib 要么走 _hashlib（OpenSSL），要么走 _sha1，两者都是
+# lib-dynload 里的 .so。缺了 lib-dynload 不只是哈希——_socket / _ssl 同样没有，
+# 网关连监听端口都做不到。
 if [ -d "$VENDOR" ]; then
     SLICE="$VENDOR/ios-arm64"
     [ -d "$SLICE" ] || SLICE="$VENDOR"
-    # 共享标准库优先（顶层 lib/），其次设备切片自带的副本，最后全树兜底。
-    STDLIB=$(find_stdlib "$VENDOR/lib" || find_stdlib "$SLICE" \
-             || find_stdlib "$VENDOR" || true)
+    # 共享标准库优先（顶层 lib/），取不到再全树兜底。
+    STDLIB=$(find_stdlib "$VENDOR/lib" || find_stdlib "$VENDOR" || true)
     if [ -z "$STDLIB" ]; then
         echo "error: 在 $VENDOR 里找不到标准库（os.py），支持包结构可能变了：" >&2
         find "$VENDOR" -maxdepth 4 -type d 2>/dev/null | head -40 >&2
@@ -94,14 +103,40 @@ if [ -d "$VENDOR" ]; then
     LIB_VER=$(basename "$STDLIB")          # python3.13
     DEST_LIB="$DEST_PY/lib/$LIB_VER"
     mkdir -p "$DEST_PY/lib"
-    # 只在标准库缺失时重铺：17MB / 数千文件，增量构建没必要每次都拷。
-    if [ ! -f "$DEST_LIB/os.py" ]; then
+
+    # 设备切片的二进制扩展目录。单架构包会把整份标准库放在切片里，所以按
+    # lib-<arch>/pythonX.Y 也找一遍，避免只认一种布局。
+    SLICE_LIB=""
+    for candidate in "$SLICE/lib-arm64/$LIB_VER" "$SLICE"/lib-*/"$LIB_VER"; do
+        if [ -d "$candidate/lib-dynload" ]; then
+            SLICE_LIB=$candidate
+            break
+        fi
+    done
+
+    # 重铺条件：缺 os.py，或**缺二进制扩展**。后者是关键——早期版本只铺了共享
+    # 标准库，升级 App 时如果只看 os.py 就会跳过重铺，用户仍然报 hashlib 错误。
+    need_install=0
+    [ -f "$DEST_LIB/os.py" ] || need_install=1
+    ls "$DEST_LIB"/lib-dynload/_sha1*.so >/dev/null 2>&1 || need_install=1
+    if [ "$need_install" = "1" ]; then
         rm -rf "$DEST_LIB"
         cp -R "$STDLIB" "$DEST_LIB"
+        if [ -n "$SLICE_LIB" ]; then
+            cp -R "$SLICE_LIB"/. "$DEST_LIB"/
+            echo "merged binary modules from $SLICE_LIB -> Resources/python/lib/$LIB_VER/lib-dynload"
+        fi
         echo "installed CPython stdlib ($LIB_VER) from $STDLIB -> Resources/python/lib/$LIB_VER"
     fi
     if [ ! -f "$DEST_LIB/os.py" ] || [ ! -f "$DEST_LIB/encodings/__init__.py" ]; then
         echo "error: 标准库不完整（$DEST_LIB）" >&2
+        exit 1
+    fi
+    if ! ls "$DEST_LIB"/lib-dynload/_sha1*.so >/dev/null 2>&1; then
+        echo "error: 标准库缺少二进制扩展（$DEST_LIB/lib-dynload）" >&2
+        echo "       iOS 上 hashlib / socket / ssl 会全部不可用，App 启动即报" >&2
+        echo "       AttributeError: module 'hashlib' has no attribute 'sha1'" >&2
+        echo "       检查 $SLICE 下是否存在 lib-arm64/$LIB_VER/lib-dynload" >&2
         exit 1
     fi
 else
