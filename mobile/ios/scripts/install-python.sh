@@ -53,11 +53,20 @@ mkdir -p "$LIB_DEST"
 if [ -d "$VENDOR/lib" ]; then
     rsync -a --exclude 'libpython*.dylib' "$VENDOR/lib/" "$LIB_DEST/"
 fi
-for arch_dir in "$SLICE"/lib-*; do
-    [ -d "$arch_dir" ] || continue
-    rsync -a --exclude 'libpython*.dylib' "$arch_dir/" "$LIB_DEST/"
+# 模拟器切片下有 lib-arm64 与 lib-x86_64 两份，只能取当前 ARCHS 匹配的那份，
+# 否则两份同名 .so 互相覆盖，最后加载的架构对不上。
+ARCH_PICK=$(printf '%s' "${ARCHS:-arm64}" | cut -d' ' -f1)
+SLICE_ARCH=""
+for candidate in "$SLICE/lib-$ARCH_PICK" "$SLICE"/lib-*; do
+    if [ -d "$candidate" ]; then
+        SLICE_ARCH="$candidate"
+        break
+    fi
 done
-echo "python libraries synced from $(basename "$SLICE")"
+if [ -n "$SLICE_ARCH" ]; then
+    rsync -a --exclude 'libpython*.dylib' "$SLICE_ARCH/" "$LIB_DEST/"
+fi
+echo "python libraries synced from $(basename "$SLICE")/$(basename "${SLICE_ARCH:-none}")"
 
 PY_VER=$(ls -1 "$LIB_DEST" 2>/dev/null | grep -E '^python3\.[0-9]+$' | sort -V | tail -n 1 || true)
 if [ -z "$PY_VER" ]; then
