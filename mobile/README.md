@@ -184,27 +184,35 @@ gradle :app:assembleDebug        # 或 :app:assembleRelease
 ### iOS
 
 ```bash
-# 需要 macOS + Xcode；CI 用 macos-14 runner
+# 需要 macOS + Xcode；CI 用 macos-15 + Xcode 26（iOS 26 的持续后台任务要用新 SDK）
 cd mobile/ios
-./scripts/sync-core.sh                       # 复制核心 + 铺标准库 + 安装 certifi
+./scripts/sync-core.sh                       # 复制核心 + 合并标准库/二进制扩展 + 装 certifi
 brew install xcodegen && xcodegen generate   # 生成 WorkBuddyHub.xcodeproj
 # Vendor/Python.xcframework 需先下载（CI 会自动做）：
 #   https://github.com/beeware/Python-Apple-support/releases/download/3.13-b18/Python-3.13-iOS-support.b18.tar.gz
 open WorkBuddyHub.xcodeproj                  # 选自己的 Team 后可真机运行
 ```
 
+> 构建时还有一步 `install-python.sh`（`postBuildScripts` 里，自动执行），把
+> `lib-dynload` 的 `.so` 转成 `Frameworks/*.framework` 并签名。这一步不能省，
+> 也不能只靠 `sync-core.sh`——裸 `.so` 在 iOS 上加载不了。
+
 - 仓库**不含** `Python.xcframework`（约 200MB）与生成的 `.xcodeproj`，都由 CI/本地脚本重建；
 - 仓库也**不含**签名材料：CI 产出的是**未签名 IPA**，用 AltStore / Sideloadly 或
   本地 Xcode 配 Team 签名后才能装；
 - 真机首次运行到「设置 → 通用 → VPN 与设备管理」信任开发者证书。
 
-接入 `Python.framework` 踩过的两个坑（`project.yml` 里都有注释，别改回去）：
+接入 `Python.framework` 踩过的三个坑（`project.yml` 里都有注释，别改回去）：
 
 1. **不要**给 `Python.xcframework` 手动加 `FRAMEWORK_SEARCH_PATHS`。Xcode 会把切片里的
    `Python.framework` 复制到 `$(BUILT_PRODUCTS_DIR)` 并自动加进搜索路径；再指一份
    `Vendor/` 下的副本，clang 会同时看到两个 `Headers/module.modulemap`，报
    `redefinition of module 'Python'`。
 2. 桥接头的头文件搜索路径要指 `$(BUILT_PRODUCTS_DIR)/Python.framework/Headers`。
+3. **标准库要合并两份，二进制扩展要转 framework**。只拷 `lib/python3.13` 会漏掉
+   68 个 `.so`（症状：启动即报 `hashlib has no attribute 'sha1'`）；拷了 `.so` 但不
+   转 framework，iOS 又拒绝 `dlopen`（症状相同）。两件事分别由 `sync-core.sh` 和
+   `install-python.sh` 负责，缺一不可。
    `module.modulemap` 位于 `Headers/` 下，不把该目录放进搜索路径会报
    `module 'Python' ... is not defined in any loaded module map file`。
 
