@@ -5,6 +5,8 @@ name: tests
 # without the branch filter ran each update twice - two full windows + ubuntu
 # matrices for the same commit.
 on:
+  # 手动触发入口：代理不通、或想用当前 main 立刻重跑一遍时用得上。
+  workflow_dispatch:
   push:
     branches: [main]
     # v* tags run the full matrix plus the tag == source version assertion
