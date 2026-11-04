@@ -76,7 +76,12 @@ jobs:
         run: |
           VERSION=$(grep -oE 'server_version = "wb-proxy/[0-9.]+"' wb_proxy.py \
             | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
-          echo "value=${VERSION:-0.0.0}" >> "$GITHUB_OUTPUT"
+          VERSION=${VERSION:-0.0.0}
+          echo "value=${VERSION}" >> "$GITHUB_OUTPUT"
+          # CFBundleVersion 取 主*10000 + 次*100 + 修，与 Android 的 versionCode 同源：
+          # 1.10.9 -> 11009。恒为 1 的话，覆盖安装时系统分不出新旧版本。
+          BUILD=$(echo "$VERSION" | awk -F. '{printf "%d", $1*10000 + $2*100 + $3}')
+          echo "build=${BUILD:-1}" >> "$GITHUB_OUTPUT"
 
       - name: Syntax gate (gateway core + bridge)
         run: |
@@ -138,6 +143,7 @@ jobs:
             -destination "generic/platform=iOS" \
             -derivedDataPath build \
             MARKETING_VERSION="${{ steps.version.outputs.value }}" \
+            CURRENT_PROJECT_VERSION="${{ steps.version.outputs.build }}" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             build
 
