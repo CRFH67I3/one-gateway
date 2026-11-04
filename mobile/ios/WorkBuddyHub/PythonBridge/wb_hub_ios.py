@@ -11,6 +11,9 @@ import sys
 
 _ready = False
 
+#: faulthandler 的输出流必须活到进程结束，否则会写进已关闭的文件。
+_fault_fh = None
+
 #: 网关离不开的二进制扩展。iOS 上它们全在标准库的 lib-dynload 里，必须以
 #: `Frameworks/<名字>.framework` 的形式存在才能被 dlopen。打包时漏掉这一步的
 #: 表现是 `hashlib has no attribute 'sha1'`——报在启动第一步，日志也还没建好，
@@ -37,7 +40,28 @@ def _runtime(core, data):
         runtime.configure(home=data, core=core,
                           logs=os.path.join(data, "logs"))
         _ready = True
+    _arm_faulthandler(data)
     return runtime
+
+
+def _arm_faulthandler(data):
+    """把解释器级崩溃（段错误、abort、栈溢出）写到单独的日志文件。
+
+    设备上解释器挂掉时系统只留一句「App 闪退了」，看不到死在哪一行；
+    `faulthandler` 会把出事的 Python 栈直接落盘。只装一次，失败也不影响启动：
+    这是诊断手段，不是功能。
+    """
+    global _fault_fh
+    if _fault_fh is not None:
+        return
+    try:
+        import faulthandler
+        logs = os.path.join(data, "logs")
+        os.makedirs(logs, exist_ok=True)
+        _fault_fh = open(os.path.join(logs, "faulthandler.log"), "a", buffering=1)
+        faulthandler.enable(file=_fault_fh, all_threads=True)
+    except Exception:
+        _fault_fh = None
 
 
 def _payload(raw):

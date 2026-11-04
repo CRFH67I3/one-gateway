@@ -30,6 +30,14 @@ final class PyBridge {
     private let lock = NSLock()
     private var initialized = false
 
+    /// 所有进出解释器的调用都排在这条串行队列上。
+    ///
+    /// 之前是几个 `DispatchQueue.global()` 各调各的：切后台的 `stop`（utility 线程）
+    /// 和回前台的 `start`（userInitiated 线程）可能同时进 CPython，甚至后到的 `stop`
+    /// 把刚起来的监听又关掉。GIL 保证内存安全，但保证不了「先 start 再 stop」这个
+    /// 业务顺序，也不会阻止 `socketserver.shutdown()` 在错误的时机阻塞。
+    private let queue = DispatchQueue(label: "com.workbuddy2api.hub.python")
+
     /// 初始化解释器。必须在调用任何 Python 动作之前完成，且只做一次。
     ///
     /// 环境变量按 CPython 官方文档《Using Python on iOS》第 8 步配置：
@@ -40,6 +48,12 @@ final class PyBridge {
     /// 注意 `PYTHONHOME` **不是** `Python.framework`：framework 自带的是解释器本体，
     /// 标准库是我们按官方 `install_python` 的做法铺进 Resources 的，两者分工不同。
     func bootstrap(corePath: String) throws {
+        try queue.sync {
+            try bootstrapSerial(corePath: corePath)
+        }
+    }
+
+    private func bootstrapSerial(corePath: String) throws {
         lock.lock()
         defer { lock.unlock() }
         if initialized { return }
@@ -87,6 +101,10 @@ final class PyBridge {
 
     /// 调用 `wb_hub_ios.<function>(payloadJSON)`，返回解析后的字典。
     func call(_ function: String, _ payload: [String: Any]) -> [String: Any] {
+        queue.sync { callSerial(function, payload) }
+    }
+
+    private func callSerial(_ function: String, _ payload: [String: Any]) -> [String: Any] {
         guard initialized else {
             return ["ok": false, "running": false,
                     "error": BridgeError.notInitialized.localizedDescription]

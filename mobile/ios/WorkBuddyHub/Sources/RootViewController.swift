@@ -22,6 +22,13 @@ final class RootViewController: UIViewController {
     private var pauseWorkItem: DispatchWorkItem?
     private var bootstrapped = false
 
+    /// App 是否在前台。后台计时器/后台任务到期回调都会调 `pauseGateway`，
+    /// 但用户可能刚好在这时切回来——没有这个标记就会出现「已经回前台了，
+    /// 延迟的 stop 却把监听关掉」：面板转圈、网关地址打不开，看起来像崩了。
+    private var isForeground = true
+    /// 连续健康检查失败次数：网关真的躺了才重启，偶发一次超时不要动。
+    private var healthFailures = 0
+
     /// 最近一次拿到的网关状态。实时活动与设置页的「状态」都读这几个值。
     private var lastAccounts = 0
     private var lastUsable = 0
@@ -76,6 +83,7 @@ final class RootViewController: UIViewController {
         // 面板用 alert/confirm 做提示与二次确认（关闭网关、删账号、清日志），
         // 没有 uiDelegate 时 WKWebView 会静默丢弃，confirm 直接返回 false。
         webView.uiDelegate = self
+        webView.navigationDelegate = self
 
         let header = UIView()
         header.translatesAutoresizingMaskIntoConstraints = false
@@ -166,6 +174,9 @@ final class RootViewController: UIViewController {
     }
 
     @objc private func didEnterBackground() {
+        isForeground = false
+        healthFailures = 0
+        Diagnostics.shared.note("didEnterBackground keepAlive=\(BackgroundKeepAlive.shared.isRunning)")
         spinner.stopAnimating()
         // 持续后台任务已经在跑：后台时间由它接管，不能再按 20 秒的老规矩断监听。
         if BackgroundKeepAlive.shared.isRunning { return }
@@ -189,18 +200,34 @@ final class RootViewController: UIViewController {
     }
 
     @objc private func didBecomeActive() {
+        isForeground = true
+        Diagnostics.shared.note("didBecomeActive running=\(lastRunning)")
         pauseWorkItem?.cancel()
         pauseWorkItem = nil
         endBackgroundTask()
         // 前台本来就有前台时间，把后台任务还给系统，锁屏上那张进度卡也随之撤掉。
         BackgroundKeepAlive.shared.stop()
         guard bootstrapped else { return }
+        // 网关还活着就只探一次健康，不要整页重载面板。
+        // 之前是无条件 `reloadDashboard()`：每次从授权页/别的 App 切回来都重排一次
+        // 1.2MB 的面板，WebKit 侧内存瞬时抬高，iPad 上后台再挂着几个大 App 就容易被系统收走。
+        if lastRunning {
+            refreshHealth()
+            return
+        }
+        resumeGateway()
+    }
+
+    /// 从后台回来、或网关确认躺了时恢复监听（`start` 本身是幂等的）。
+    private func resumeGateway() {
+        spinner.startAnimating()
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             let state = PyBridge.shared.call("start", self.payload())
             DispatchQueue.main.async {
+                // 之前那张页面已经连不上了，清掉缓存地址让 apply 重新加载一次面板。
+                self.loadedURL = nil
                 self.apply(state)
-                self.reloadDashboard()
             }
         }
     }
@@ -212,9 +239,11 @@ final class RootViewController: UIViewController {
     }
 
     private func pauseGateway() {
-        guard bootstrapped else { return }
+        // 已经回到前台就别再停了：后台计时器/后台任务到期通知可能晚到一步。
+        guard bootstrapped, !isForeground else { return }
         lastRunning = false
         lastNote = "已暂停，回到前台自动恢复"
+        Diagnostics.shared.note("pauseGateway")
         syncLiveActivity(force: true)
         let payload = self.payload()
         DispatchQueue.global(qos: .utility).async {
@@ -246,12 +275,14 @@ final class RootViewController: UIViewController {
 
     private func startGateway() {
         spinner.startAnimating()
+        Diagnostics.shared.note("startGateway")
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             do {
                 try PyBridge.shared.bootstrap(corePath: self.paths.bundleCore)
                 self.bootstrapped = true
             } catch {
+                Diagnostics.shared.note("bootstrap failed: \(error.localizedDescription)")
                 DispatchQueue.main.async {
                     self.spinner.stopAnimating()
                     self.statusLabel.text = "初始化失败：\(error.localizedDescription)"
@@ -337,14 +368,23 @@ final class RootViewController: UIViewController {
 
     private func applyHealth(_ json: [String: Any]?) {
         guard let json else {
+            healthFailures += 1
             if statusLabel.text?.hasPrefix("运行中") == true {
                 statusDot.backgroundColor = .systemOrange
                 statusLabel.text = "正在恢复网关…"
                 lastNote = "正在恢复网关"
                 syncLiveActivity()
             }
+            // 连续三次都连不上，说明监听真的没了（不是偶发超时）：自己拉起来，
+            // 别让用户对着「正在恢复网关…」干等到切后台。
+            if healthFailures == 3, isForeground, bootstrapped, lastRunning {
+                Diagnostics.shared.note("health failed 3x, restarting gateway")
+                lastRunning = false
+                resumeGateway()
+            }
             return
         }
+        healthFailures = 0
         statusDot.backgroundColor = .systemGreen
         let port = Settings.port
         let accounts = json["accounts"] as? Int ?? 0
@@ -398,6 +438,9 @@ final class RootViewController: UIViewController {
         })
         sheet.addAction(UIAlertAction(title: "查看启动日志", style: .default) { [weak self] _ in
             self?.showLog()
+        })
+        sheet.addAction(UIAlertAction(title: "诊断信息", style: .default) { [weak self] _ in
+            self?.showDiagnostics()
         })
         sheet.addAction(UIAlertAction(title: "关于", style: .default) { [weak self] _ in
             self?.showAbout()
@@ -456,6 +499,18 @@ final class RootViewController: UIViewController {
                 self?.present(alert, animated: true)
             }
         }
+    }
+
+    private func showDiagnostics() {
+        let text = Diagnostics.shared.report()
+        let alert = UIAlertController(title: "诊断信息",
+                                      message: String(text.suffix(3500)),
+                                      preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "复制全部", style: .default) { _ in
+            UIPasteboard.general.string = text
+        })
+        alert.addAction(UIAlertAction(title: "好", style: .cancel, handler: nil))
+        present(alert, animated: true)
     }
 
     private func showAbout() {
@@ -555,5 +610,32 @@ extension RootViewController: WKUIDelegate {
                 self.present(alert, animated: true)
             }
         }
+    }
+}
+
+// MARK: - 面板加载状态
+
+/// 面板加载成功/失败、WebKit 内容进程被回收，都记一笔：
+/// 「授权成功后闪退」这类问题，如果只是 WebKit 的内容进程被系统收了，App 其实
+/// 还活着，只是白屏——记录能把这三种情况区分开。
+extension RootViewController: WKNavigationDelegate {
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        Diagnostics.shared.note("panel loaded")
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation!,
+        withError error: Error
+    ) {
+        Diagnostics.shared.note("panel load failed: \(error.localizedDescription)")
+        // 允许下一次健康检查成功后重试（否则会一直停在白屏）。
+        loadedURL = nil
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        Diagnostics.shared.note("web content process terminated")
+        reloadDashboard()
     }
 }
