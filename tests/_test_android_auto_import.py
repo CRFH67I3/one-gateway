@@ -271,6 +271,20 @@ class AboutMergeTests(unittest.TestCase):
         self.assertIn("不需要凭证", hint)
 
 
+class WebViewRecoveryTests(unittest.TestCase):
+    """换代码会先停网关，WebView 必然撞一次连接拒绝——得能自己爬起来。"""
+
+    def setUp(self):
+        self.main = read(os.path.join(JAVA, "MainActivity.kt"))
+
+    def test_main_frame_error_clears_loaded_url(self):
+        start = self.main.index("override fun onReceivedError(")
+        body = self.main[start:self.main.index("        installJsDialogBridge()", start)]
+        self.assertIn("loadedUrl = null", body)
+        # 只对主文档重置：子资源失败不该触发整页重载
+        self.assertIn("request?.isForMainFrame == true", body)
+
+
 class BuildVariantTests(unittest.TestCase):
     """debug 全量构建、release 最小化构建。"""
 

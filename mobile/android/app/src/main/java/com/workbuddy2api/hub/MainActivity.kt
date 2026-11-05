@@ -157,6 +157,11 @@ class MainActivity : Activity() {
             ) {
                 // 只有主文档失败才提示：面板里的子资源（图标、字体）失败不该挡屏。
                 if (request?.isForMainFrame == true) {
+                    // 顺手把「已加载」标记清掉。换代码时要先停网关，WebView 这一瞬间必然
+                    // 撞上 ERR_CONNECTION_REFUSED 并渲染系统错误页；而 render() 只在
+                    // loadedUrl != target 时才 loadUrl，标记不清就会一直停在错误页，
+                    // 直到用户重启 App（真机复现过）。清掉后网关一起来 poller 就自动重载。
+                    loadedUrl = null
                     overlay.visibility = View.VISIBLE
                     overlayText.text = getString(R.string.overlay_failed, error?.description ?: "")
                 }
