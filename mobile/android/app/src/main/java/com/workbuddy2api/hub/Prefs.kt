@@ -14,7 +14,9 @@ object Prefs {
     private const val KEY_PORT = "port"
     private const val KEY_LAN = "lan"
     private const val KEY_AUTOSTART = "autostart"
-    private const val KEY_BUNDLE_STAMP = "bundle-stamp"
+    private const val KEY_PROJECT_PATH = "project-path"
+    private const val KEY_PROJECT_VERSION = "project-version"
+    private const val KEY_PROJECT_IMPORTED_AT = "project-imported-at"
 
     const val DEFAULT_PORT = 8788
 
@@ -44,5 +46,25 @@ object Prefs {
 
     fun setBundleStamp(context: Context, stamp: String) {
         prefs(context).edit().putString(KEY_BUNDLE_STAMP, stamp).apply()
+    }
+
+    /** 当前生效的网关项目根目录（指向 projects/<时间戳>）。 */
+    fun projectPath(context: Context): String? = prefs(context).getString(KEY_PROJECT_PATH, null)
+
+    fun setProjectPath(context: Context, path: String) {
+        prefs(context).edit().putString(KEY_PROJECT_PATH, path).apply()
+    }
+
+    fun projectVersion(context: Context): String =
+        prefs(context).getString(KEY_PROJECT_VERSION, "") ?: ""
+
+    fun setProjectVersion(context: Context, version: String) {
+        prefs(context).edit().putString(KEY_PROJECT_VERSION, version).apply()
+    }
+
+    fun projectImportedAt(context: Context): Long = prefs(context).getLong(KEY_PROJECT_IMPORTED_AT, 0L)
+
+    fun setProjectImportedAt(context: Context, at: Long) {
+        prefs(context).edit().putLong(KEY_PROJECT_IMPORTED_AT, at).apply()
     }
 }

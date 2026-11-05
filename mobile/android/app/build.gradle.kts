@@ -140,25 +140,12 @@ chaquopy {
     }
 }
 
-// 把仓库根目录的网关核心（只读、单一来源）同步进 APK 的 assets/core。
-// 运行期由外壳解压到 filesDir，再交给 Python 侧同步到可写数据目录。
-val syncGatewayCore = tasks.register<Sync>("syncGatewayCore") {
-    from(repoRoot) {
-        include("wb_*.py")
-        include("dashboard.html")
-    }
-    from(File(repoRoot, "mobile/shared")) {
-        include("wb_mobile_runtime.py")
-    }
-    into(layout.projectDirectory.dir("src/main/assets/core"))
-}
-
-tasks.matching { it.name == "preBuild" }.configureEach {
-    dependsOn(syncGatewayCore)
-}
-tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }.configureEach {
-    dependsOn(syncGatewayCore)
-}
+// 容器模式：APK 只带 Python 解释器 + 薄运行时（src/main/python/wb_hub_env.py），
+// 不再打包网关源码（wb_*.py / dashboard.html）。网关本体由用户在 App 内导入
+// 仓库 ZIP 提供——升级网关不需要重装 APK，App 也因此不随网关版本变化而膨胀。
+//
+// 版本号仍只有一个来源：仓库根目录 wb_proxy.py 的 server_version，方便面板和
+// App 对上号（用户导入的 ZIP 版本可能比 App 新，这是预期行为）。
 
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")

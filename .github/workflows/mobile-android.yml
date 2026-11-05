@@ -103,14 +103,19 @@ jobs:
           set -euo pipefail
           shopt -s globstar
           ls -lh mobile/android/app/build/outputs/apk/**/*.apk
-          # 每个包里都必须有网关核心，而不只是源码树里有。
-          # 同时校验拆包真的生效：一个包只能带一个 ABI 的原生库、一份 ABI 专属标准库，
-          # 否则等于把双 ABI 的包改了个名字，白拆。
+          # 容器模式：APK 里只应有 Python 运行时与薄桥接层，**不应**再有网关源码。
+          # 一旦 assets/core 又冒出来，说明构建脚本还在把核心打进包——那会让
+          # 「导入 ZIP 升级网关」的版本判断失效（包内旧核心与导入的新项目打架）。
+          # 同时校验拆包真的生效：一个包只能带一个 ABI 的原生库、一份 ABI 专属标准库。
           for apk in mobile/android/app/build/outputs/apk/*/*/*.apk; do
             echo "== $apk ($(du -h "$apk" | cut -f1))"
             listing=$(unzip -l "$apk")
-            printf '%s\n' "$listing" | grep -q "assets/core/wb_proxy.py" \
-              || { echo "::error::$apk 里没有 assets/core/wb_proxy.py"; exit 1; }
+            printf '%s\n' "$listing" | grep -q "assets/chaquopy/" \
+              || { echo "::error::$apk 里没有 Chaquopy 运行时，Python 环境没打进去"; exit 1; }
+            if printf '%s\n' "$listing" | grep -q "assets/core/wb_proxy.py"; then
+              echo "::error::$apk 仍然打包了 assets/core/wb_proxy.py，容器模式不该携带网关源码"
+              exit 1
+            fi
 
             abis=$(printf '%s\n' "$listing" \
               | awk '$4 ~ /^lib\// {split($4, p, "/"); print p[2]}' | sort -u)

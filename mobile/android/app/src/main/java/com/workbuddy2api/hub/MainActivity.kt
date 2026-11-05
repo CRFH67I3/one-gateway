@@ -87,13 +87,20 @@ class MainActivity : Activity() {
         configureWebView()
         swipe.setOnRefreshListener { webView.reload() }
         overlayAction.setOnClickListener {
-            GatewayService.send(this, GatewayService.ACTION_START)
-            overlayText.text = getString(R.string.overlay_starting)
-            ui.postDelayed(poller, 600)
+            if (GatewayBridge.projectRoot(this) == null) {
+                // 没有项目时，这个按钮的语义是「导入压缩包」而不是「启动」。
+                launchProjectImport()
+            } else {
+                overlayText.text = getString(R.string.overlay_starting)
+                overlayAction.text = getString(R.string.overlay_action)
+                GatewayService.send(this, GatewayService.ACTION_START)
+                ui.postDelayed(poller, 600)
+            }
         }
         findViewById<ImageButton>(R.id.menuButton).setOnClickListener { showMenu(it) }
 
-        if (Prefs.autoStart(this)) {
+        // 只对「已经导入过项目」的机器自动启动：首次安装应当先看到导入引导。
+        if (Prefs.autoStart(this) && GatewayBridge.projectRoot(this) != null) {
             GatewayService.send(this, GatewayService.ACTION_START)
         }
     }
@@ -227,9 +234,74 @@ class MainActivity : Activity() {
     @Deprecated("android.app.Activity 的旧式结果回调，避免为一个文件选择引入 androidx.activity")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQUEST_IMPORT || resultCode != RESULT_OK) return
+        if (resultCode != RESULT_OK) return
         val uri = data?.data ?: return
-        importCredential(uri)
+        when (requestCode) {
+            REQUEST_IMPORT -> importCredential(uri)
+            REQUEST_PROJECT -> importProject(uri)
+        }
+    }
+
+    /**
+     * 导入网关项目压缩包（从仓库 Download ZIP 得到的原包）。
+     *
+     * 解压交给 Python 侧做：路径校验、找项目根、读版本号都在那边，Kotlin 只负责
+     * 把 SAF 的输入流落到缓存文件。导入成功后直接重启进程——网关模块一旦被
+     * import 过就留在 sys.modules 里，热替换成新版本并不可靠，重启一次最干净。
+     */
+    private fun importProject(uri: Uri) {
+        Toast.makeText(this, R.string.project_installing, Toast.LENGTH_SHORT).show()
+        io.execute {
+            // 先停掉前台服务，避免解压与运行中的网关抢同一份数据目录。
+            GatewayService.send(this, GatewayService.ACTION_STOP)
+            Thread.sleep(300)
+            val zip = GatewayBridge.stageZip(this) { contentResolver.openInputStream(uri) }
+            if (zip == null) {
+                ui.post {
+                    Toast.makeText(
+                        this,
+                        getString(R.string.project_import_failed, "读取压缩包失败"),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+                return@execute
+            }
+            val result = GatewayBridge.installProject(this, zip)
+            ui.post {
+                if (!result.optBoolean("ok")) {
+                    Toast.makeText(
+                        this,
+                        getString(R.string.project_import_failed, result.optString("error")),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    return@post
+                }
+                val version = result.optString("version").ifBlank { "未知版本" }
+                val files = result.optInt("files_extracted", 0)
+                Toast.makeText(
+                    this,
+                    getString(R.string.project_import_ok, version, files),
+                    Toast.LENGTH_LONG,
+                ).show()
+                restartApp()
+            }
+        }
+    }
+
+    /** 让新导入的项目在干净的进程里生效（旧模块不能可靠地热替换）。 */
+    private fun restartApp() {
+        val intent = Intent(this, MainActivity::class.java).addFlags(
+            Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        )
+        startActivity(intent)
+        finishAffinity()
+        ui.postDelayed({
+            android.os.Process.killProcess(android.os.Process.myPid())
+        }, 300)
+    }
+
+    override fun onBackPressed() {
+        if (webView.canGoBack()) webView.goBack() else super.onBackPressed()
     }
 
     private fun importCredential(uri: Uri) {
@@ -264,20 +336,18 @@ class MainActivity : Activity() {
         }
     }
 
-    override fun onBackPressed() {
-        if (webView.canGoBack()) webView.goBack() else super.onBackPressed()
-    }
-
     // ---------------------------------------------------------------- 菜单
     private fun showMenu(anchor: View) {
         val menu = PopupMenu(this, anchor)
         menu.menu.add(0, MENU_RESTART, 0, getString(R.string.menu_restart))
         menu.menu.add(0, MENU_SETTINGS, 1, getString(R.string.menu_settings))
-        menu.menu.add(0, MENU_IMPORT, 2, getString(R.string.menu_import))
-        menu.menu.add(0, MENU_COPY, 3, getString(R.string.menu_copy))
-        menu.menu.add(0, MENU_LOG, 4, getString(R.string.menu_log))
-        menu.menu.add(0, MENU_ABOUT, 5, getString(R.string.menu_about))
-        menu.menu.add(0, MENU_EXIT, 6, getString(R.string.menu_exit))
+        menu.menu.add(0, MENU_PROJECT, 2, getString(R.string.menu_project_import))
+        menu.menu.add(0, MENU_PROJECT_INFO, 3, getString(R.string.menu_project_info))
+        menu.menu.add(0, MENU_IMPORT, 4, getString(R.string.menu_import))
+        menu.menu.add(0, MENU_COPY, 5, getString(R.string.menu_copy))
+        menu.menu.add(0, MENU_LOG, 6, getString(R.string.menu_log))
+        menu.menu.add(0, MENU_ABOUT, 7, getString(R.string.menu_about))
+        menu.menu.add(0, MENU_EXIT, 8, getString(R.string.menu_exit))
         menu.setOnMenuItemClickListener { item: MenuItem ->
             when (item.itemId) {
                 MENU_RESTART -> {
@@ -285,6 +355,8 @@ class MainActivity : Activity() {
                     Toast.makeText(this, R.string.toast_restarting, Toast.LENGTH_SHORT).show()
                 }
                 MENU_SETTINGS -> showSettings()
+                MENU_PROJECT -> launchProjectImport()
+                MENU_PROJECT_INFO -> showProjectInfo()
                 MENU_IMPORT -> launchImport()
                 MENU_COPY -> copyApiBase()
                 MENU_LOG -> showLog()
@@ -317,6 +389,60 @@ class MainActivity : Activity() {
             type = "*/*"
         }
         startActivityForResult(intent, REQUEST_IMPORT)
+    }
+
+    /**
+     * 选一个网关项目压缩包。
+     *
+     * type 故意写 `*/*`：不同文件管理器给 .zip 报的 MIME 并不统一
+     * （application/zip / application/x-zip-compressed / octet-stream 都见过），
+     * 限定成 zip 会让一部分机型里文件直接变灰选不中。选中后由 Python 侧校验，
+     * 不是 ZIP 会明确报错，比「选不中」好排查。
+     */
+    private fun launchProjectImport() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+        }
+        startActivityForResult(intent, REQUEST_PROJECT)
+    }
+
+    private fun showProjectInfo() {
+        val root = GatewayBridge.projectRoot(this)
+        if (root == null) {
+            AlertDialog.Builder(this)
+                .setTitle(R.string.menu_project_info)
+                .setMessage(R.string.project_none_hint)
+                .setPositiveButton(R.string.project_import_action) { _, _ -> launchProjectImport() }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+            return
+        }
+        val info = GatewayBridge.describeProject(this)
+        val imported = Prefs.projectImportedAt(this)
+        val stamp = if (imported > 0) {
+            java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+                .format(java.util.Date(imported))
+        } else {
+            "未知"
+        }
+        val body = buildString {
+            append(getString(R.string.project_version, info.optString("version").ifBlank { "未知" }))
+            append('\n')
+            append(getString(R.string.project_imported, stamp))
+            append('\n')
+            append(getString(R.string.project_path, root.absolutePath))
+            append('\n')
+            append(getString(R.string.project_panel, if (info.optBoolean("has_panel")) "正常" else "缺失 dashboard.html"))
+            append('\n')
+            append(getString(R.string.project_data, GatewayBridge.dataDir(this@MainActivity).absolutePath))
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.menu_project_info)
+            .setMessage(body)
+            .setPositiveButton(R.string.project_update_action) { _, _ -> launchProjectImport() }
+            .setNegativeButton(android.R.string.ok, null)
+            .show()
     }
 
     private fun copyApiBase() {
@@ -425,6 +551,19 @@ class MainActivity : Activity() {
 
     private fun render(health: Health) {
         val port = Prefs.port(this)
+
+        // 没导入项目时，这个 App 只是一个空壳：不提示「已停止」，而是直接把
+        // 「导入压缩包」摆在最显眼的位置——这是首次安装后唯一该做的事。
+        if (GatewayBridge.projectRoot(this) == null) {
+            statusDot.setBackgroundResource(R.drawable.dot_idle)
+            statusText.text = getString(R.string.status_no_project)
+            overlay.visibility = View.VISIBLE
+            overlayText.text = getString(R.string.overlay_no_project)
+            overlayAction.text = getString(R.string.overlay_import_project)
+            return
+        }
+        overlayAction.text = getString(R.string.overlay_action)
+
         if (health.reachable) {
             statusDot.setBackgroundResource(R.drawable.dot_running)
             statusText.text = getString(R.string.status_running, port, health.usable, health.accounts)
@@ -450,12 +589,15 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQUEST_IMPORT = 1001
+        private const val REQUEST_PROJECT = 1002
         private const val MENU_RESTART = 2
         private const val MENU_SETTINGS = 3
-        private const val MENU_IMPORT = 4
-        private const val MENU_COPY = 5
-        private const val MENU_LOG = 6
-        private const val MENU_ABOUT = 7
-        private const val MENU_EXIT = 8
+        private const val MENU_PROJECT = 4
+        private const val MENU_PROJECT_INFO = 5
+        private const val MENU_IMPORT = 6
+        private const val MENU_COPY = 7
+        private const val MENU_LOG = 8
+        private const val MENU_ABOUT = 9
+        private const val MENU_EXIT = 10
     }
 }

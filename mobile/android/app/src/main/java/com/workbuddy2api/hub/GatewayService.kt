@@ -83,6 +83,15 @@ class GatewayService : Service() {
 
     private fun launch() {
         val context = applicationContext
+        // 空壳状态下没什么可启动的：不弹「启动失败」，直接告诉用户下一步该做什么。
+        if (GatewayBridge.projectRoot(context) == null) {
+            active = false
+            postNotification(
+                getString(R.string.notif_no_project_title),
+                getString(R.string.notif_no_project),
+            )
+            return
+        }
         val port = Prefs.port(context)
         val lan = Prefs.lan(context)
         val state = GatewayBridge.start(context, port, lan)

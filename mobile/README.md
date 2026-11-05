@@ -14,23 +14,25 @@
 > 请自行评估，遇到问题也请以「AI 生成代码」的预期来定位。
 
 把电脑版的 WorkBuddy 多账号网关搬到手机上。**没有另写一套业务逻辑**：仓库根目录
-的 `wb_*.py` 与 `dashboard.html` 就是移动端的内核，两端只做了「托管 + 平台适配」。
+的 `wb_*.py` 与 `dashboard.html` 就是运行的内核，两端只做了「托管 + 平台适配」。
+
+Android 采用**容器模式**：APK 里只有 CPython 运行时与外壳，网关本体由用户导入
+仓库 ZIP 提供（详见下文「Android 的容器模式」）。iOS 仍是打包核心的方式。
 
 ```
 mobile/
 ├── shared/
-│   └── wb_mobile_runtime.py     # 共享启动器：沙盒目录、核心同步、证书、start/stop/status
+│   └── wb_mobile_runtime.py     # iOS 启动器：沙盒目录、核心同步、证书、start/stop/status
 ├── android/                     # Kotlin 外壳 + Chaquopy（内嵌 CPython 3.13）
 │   ├── app/src/main/
 │   │   ├── java/com/workbuddy2api/hub/
 │   │   │   ├── HubApp.kt            # Application：初始化 CPython
-│   │   │   ├── GatewayBridge.kt     # Kotlin ⇄ Python 唯一通道 + assets 解压
+│   │   │   ├── GatewayBridge.kt     # Kotlin ⇄ Python 唯一通道 + 项目解压与指针
 │   │   │   ├── GatewayService.kt    # 前台服务 + 常驻通知
 │   │   │   ├── MainActivity.kt      # WebView 加载面板 + 原生菜单
-│   │   │   └── Prefs.kt             # 端口 / 局域网 / 自启
-│   │   ├── python/wb_hub_android.py # 桥接层（转调 shared/wb_mobile_runtime.py）
-│   │   └── assets/core/             # 构建时从仓库根目录复制（不入库）
-│   └── app/build.gradle.kts         # 版本号从 wb_proxy.py 解析，核心同步任务
+│   │   │   └── Prefs.kt             # 端口 / 局域网 / 自启 / 当前项目
+│   │   └── python/wb_hub_env.py     # 容器运行时：解压 ZIP、找项目根、托管网关
+│   └── app/build.gradle.kts         # 版本号从 wb_proxy.py 解析；不再打包核心
 └── ios/                         # Swift 外壳 + 内嵌 Python.framework
     ├── project.yml                  # XcodeGen 工程描述
     ├── scripts/sync-core.sh         # 复制核心 + 铺标准库（含二进制扩展）+ 装 certifi
@@ -168,8 +170,8 @@ gradle :app:assembleDebug        # 或 :app:assembleRelease
   确认手里的是哪个包；`versionCode` 两个 flavor 相同，同一台设备本来也只能装一个。
 - CI 会逐个包校验「只有一套 ABI 原生库 + 一份 ABI 专属标准库」，拆包没生效直接失败。
 
-- 首次构建会从仓库根目录把 `wb_*.py` + `dashboard.html` 同步进
-  `app/src/main/assets/core/`（Gradle 的 `syncGatewayCore` 任务，构建产物不入库）；
+- **不再把网关源码打进 APK**：容器模式下 `assets/core/` 不再生成，构建只负责把
+  `src/main/python/wb_hub_env.py` 与 Chaquopy 运行时塞进去；
 - 没有提供 keystore 时 release 包用 debug 签名，保证可直接 sideload；要出正式包就设
   `WB_ANDROID_KEYSTORE` / `WB_ANDROID_KEYSTORE_PASSWORD` / `WB_ANDROID_KEY_ALIAS` /
   `WB_ANDROID_KEY_PASSWORD`；
@@ -180,6 +182,31 @@ gradle :app:assembleDebug        # 或 :app:assembleRelease
   另外别指望 `~/.android/debug.keystore`：runner 的 `ANDROID_SDK_HOME` 与 `$HOME`
   不一致时 AGP 会忽略它、自己生成随机密钥。本地不设该变量时仍用各自的 debug keystore；
 - 装机后首次启动会解压核心到 `filesDir/core-bundle`，之后按版本号判断是否重解压。
+
+### Android 的容器模式
+
+APK 是**运行环境**，不是网关本身：
+
+1. 在 GitHub 仓库点 **Code → Download ZIP**，把压缩包发到手机（微信/网盘/数据线均可）；
+2. 打开 App → 点「导入网关项目压缩包」（或菜单「导入/更新网关项目」）→ 在系统文件
+   选择器里选中这个 ZIP；
+3. App 自动解压到 `filesDir/data/projects/<时间戳>/`，找到含 `wb_proxy.py` 的项目根，
+   读出版本号后重启进程并启动网关；
+4. 之后就是熟悉的面板（`http://127.0.0.1:8788/`），账号登录、配额、模型配置与电脑版一致。
+
+几个刻意的取舍：
+
+- **数据目录与项目目录分开**：`filesDir/data/{accounts,usage,catalog,logs}` 由 App 持有，
+  项目解压在 `data/projects/` 下。所以重新导入一份新 ZIP 覆盖升级，已登录的账号不丢。
+- **每次导入解到新目录，成功后才切指针**：解压中断时旧项目仍可用，不会两头落空。
+- **导入后重启进程**：Python 模块一旦 `import` 就留在 `sys.modules`，热替换成新版本并不可靠。
+- **ZIP 结构不挑**：GitHub 的 `仓库名-分支/` 外层会自动识别；也接受直接把仓库根目录
+  压成的包。没有 `wb_proxy.py` 的包会明确报错，不会留下半个项目。
+- **不校验签名/来源**：这里导入的是你自己下载的仓库代码，App 只做路径安全校验（拒绝
+  `../` 与绝对路径，跳过 `__MACOSX`）。
+
+> iOS 目前仍是「打包核心」形态；两端后续可以统一成容器模式，但 iOS 侧要改的是
+> PyBridge 的 `PYTHONPATH` 与资源布局，改动面比 Android 大，暂未一并切换。
 
 ### iOS
 

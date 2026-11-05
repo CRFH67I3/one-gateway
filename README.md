@@ -228,7 +228,7 @@ python tests/run_all.py realm      # 只跑名字里含 realm 的
 
 ### Unreleased
 
-- 暂无。
+- **Android 改为「网关运行环境」形态（容器模式）**：APK 不再打包网关源码，只带 CPython 运行时与常驻托管外壳；首次打开后导入从仓库 Download ZIP 得到的压缩包，解压到沙盒即可运行，升级网关只需重新导入新 ZIP，不必重装 APK。账号、用量、模型目录仍存放在 App 数据目录，重新导入不会丢。菜单新增「导入/更新网关项目」与「项目信息」。
 
 完整历史版本与详细变更日志请查阅 **[docs/CHANGELOG.md](docs/CHANGELOG.md)**。
 
