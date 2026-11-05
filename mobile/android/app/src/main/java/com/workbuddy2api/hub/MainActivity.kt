@@ -113,7 +113,7 @@ class MainActivity : Activity() {
         swipe.setOnRefreshListener { webView.reload() }
         overlayAction.setOnClickListener {
             if (GatewayBridge.projectRoot(this) == null) {
-                // 没有项目时，这个按钮的语义是「导入压缩包」而不是「启动」。
+                // 没有项目时，这个按钮的语义是「手动更新」而不是「启动」。
                 launchProjectImport()
             } else {
                 overlayText.text = getString(R.string.overlay_starting)
@@ -269,11 +269,11 @@ class MainActivity : Activity() {
     }
 
     /**
-     * 导入网关项目压缩包（从仓库 Download ZIP 得到的原包）。
+     * 手动更新：装上用户选中的那份网关 ZIP（仓库 Download ZIP 的原包）。
      *
      * 解压交给 Python 侧做：路径校验、找项目根、读版本号都在那边，Kotlin 只负责
-     * 把 SAF 的输入流落到缓存文件。导入成功后直接重启进程——网关模块一旦被
-     * import 过就留在 sys.modules 里，热替换成新版本并不可靠，重启一次最干净。
+     * 把 SAF 的输入流落到缓存文件。文件只要是个能认出项目根的 ZIP 就行——不看
+     * 来源、不要凭证，换代码这件事本身没有身份概念。
      */
     private fun importProject(uri: Uri) {
         Toast.makeText(this, R.string.project_installing, Toast.LENGTH_SHORT).show()
@@ -292,15 +292,16 @@ class MainActivity : Activity() {
                 }
                 return@execute
             }
-            applyProject(zip)
+            // 装过项目就是「更新」口径（失败也别报成安装失败）。
+            applyProject(zip, update = GatewayBridge.projectRoot(this) != null)
         }
     }
 
     /**
-     * 菜单里的「更新网关项目」：走与首装「自动导入」完全相同的下载/解压流程。
+     * 菜单里的「自动更新」：走与首装「自动更新」完全相同的下载/解压流程。
      *
-     * 没导入过就没有「更新」可言，退回导入语义——菜单里两项都在，用户点错时
-     * 期望的是「把事情办了」，而不是被一句「还没有项目」挡回来。
+     * 没装过项目时也算一次更新（区别只在文案），用户点它就是要最新的一份，
+     * 不该被一句「还没有项目」挡回来。
      */
     private fun startUpdate() {
         if (autoImporting) return
@@ -487,17 +488,16 @@ class MainActivity : Activity() {
         val menu = PopupMenu(this, anchor)
         menu.menu.add(0, MENU_RESTART, 0, getString(R.string.menu_restart))
         menu.menu.add(0, MENU_SETTINGS, 1, getString(R.string.menu_settings))
-        // 「导入」与「更新」是两件事：前者选本地 ZIP（离线、可装任意版本），
-        // 后者联网下仓库 main（一键升级）。合在一个入口里，用户每次都得先想
-        // 「我要的是哪一个」，而且「更新」还得先自己去找下载地址。
+        // 「手动更新」与「自动更新」做的是同一件事——换一份网关代码，区别只在
+        // 源码从哪来：前者选你手上的 ZIP（离线、可装任意版本），后者联网下仓库
+        // main。两条都不需要凭证，所以菜单里不再有「导入项目」这类前置动作。
         menu.menu.add(0, MENU_PROJECT, 2, getString(R.string.menu_project_import))
         menu.menu.add(0, MENU_PROJECT_UPDATE, 3, getString(R.string.menu_project_update))
-        menu.menu.add(0, MENU_PROJECT_INFO, 4, getString(R.string.menu_project_info))
-        menu.menu.add(0, MENU_IMPORT, 5, getString(R.string.menu_import))
-        menu.menu.add(0, MENU_COPY, 6, getString(R.string.menu_copy))
-        menu.menu.add(0, MENU_LOG, 7, getString(R.string.menu_log))
-        menu.menu.add(0, MENU_ABOUT, 8, getString(R.string.menu_about))
-        menu.menu.add(0, MENU_EXIT, 9, getString(R.string.menu_exit))
+        menu.menu.add(0, MENU_IMPORT, 4, getString(R.string.menu_import))
+        menu.menu.add(0, MENU_COPY, 5, getString(R.string.menu_copy))
+        menu.menu.add(0, MENU_LOG, 6, getString(R.string.menu_log))
+        menu.menu.add(0, MENU_ABOUT, 7, getString(R.string.menu_about))
+        menu.menu.add(0, MENU_EXIT, 8, getString(R.string.menu_exit))
         menu.setOnMenuItemClickListener { item: MenuItem ->
             when (item.itemId) {
                 MENU_RESTART -> {
@@ -507,7 +507,6 @@ class MainActivity : Activity() {
                 MENU_SETTINGS -> showSettings()
                 MENU_PROJECT -> launchProjectImport()
                 MENU_PROJECT_UPDATE -> startUpdate()
-                MENU_PROJECT_INFO -> showProjectInfo()
                 MENU_IMPORT -> launchImport()
                 MENU_COPY -> copyApiBase()
                 MENU_LOG -> showLog()
@@ -556,44 +555,6 @@ class MainActivity : Activity() {
             type = "*/*"
         }
         startActivityForResult(intent, REQUEST_PROJECT)
-    }
-
-    private fun showProjectInfo() {
-        val root = GatewayBridge.projectRoot(this)
-        if (root == null) {
-            AlertDialog.Builder(this)
-                .setTitle(R.string.menu_project_info)
-                .setMessage(R.string.project_none_hint)
-                .setPositiveButton(R.string.project_import_action) { _, _ -> launchProjectImport() }
-                .setNegativeButton(android.R.string.cancel, null)
-                .show()
-            return
-        }
-        val info = GatewayBridge.describeProject(this)
-        val imported = Prefs.projectImportedAt(this)
-        val stamp = if (imported > 0) {
-            java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
-                .format(java.util.Date(imported))
-        } else {
-            "未知"
-        }
-        val body = buildString {
-            append(getString(R.string.project_version, info.optString("version").ifBlank { "未知" }))
-            append('\n')
-            append(getString(R.string.project_imported, stamp))
-            append('\n')
-            append(getString(R.string.project_path, root.absolutePath))
-            append('\n')
-            append(getString(R.string.project_panel, if (info.optBoolean("has_panel")) "正常" else "缺失 dashboard.html"))
-            append('\n')
-            append(getString(R.string.project_data, GatewayBridge.dataDir(this@MainActivity).absolutePath))
-        }
-        AlertDialog.Builder(this)
-            .setTitle(R.string.menu_project_info)
-            .setMessage(body)
-            .setPositiveButton(R.string.project_update_action) { _, _ -> startUpdate() }
-            .setNegativeButton(android.R.string.ok, null)
-            .show()
     }
 
     private fun copyApiBase() {
@@ -672,11 +633,49 @@ class MainActivity : Activity() {
             .show()
     }
 
+    /**
+     * 「关于与项目信息」：App 版本和网关落在哪一份代码上，放在同一个对话框里。
+     *
+     * 这两件事原来是两页，但用户打开任何一页想知道的都是「现在跑的到底是什么」，
+     * 分成两处只会让人来回切。合并后正好把两个更新入口摆在按钮位上：看着版本号
+     * 发现旧了，直接就地更新，不用退出去再翻菜单。
+     */
     private fun showAbout() {
+        val root = GatewayBridge.projectRoot(this)
+        val body = buildString {
+            append(getString(R.string.about_app_version, BuildConfig.VERSION_NAME))
+            append("\n\n")
+            if (root == null) {
+                append(getString(R.string.project_none_hint))
+            } else {
+                val info = GatewayBridge.describeProject(this@MainActivity)
+                val imported = Prefs.projectImportedAt(this@MainActivity)
+                val stamp = if (imported > 0) {
+                    java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+                        .format(java.util.Date(imported))
+                } else {
+                    "未知"
+                }
+                append(getString(R.string.project_version, info.optString("version").ifBlank { "未知" }))
+                append('\n')
+                append(getString(R.string.project_imported, stamp))
+                append('\n')
+                append(getString(R.string.project_path, root.absolutePath))
+                append('\n')
+                append(getString(R.string.project_panel, if (info.optBoolean("has_panel")) "正常" else "缺失 dashboard.html"))
+                append('\n')
+                append(getString(R.string.project_data, GatewayBridge.dataDir(this@MainActivity).absolutePath))
+                append("\n\n")
+            }
+            append(getString(R.string.about_body))
+        }
         AlertDialog.Builder(this)
-            .setTitle(R.string.app_name)
-            .setMessage(getString(R.string.about_body, BuildConfig.VERSION_NAME))
-            .setPositiveButton(android.R.string.ok, null)
+            .setTitle(R.string.menu_about)
+            .setMessage(body)
+            // 两个按钮就是两个更新入口，措辞与菜单一致；「关闭」放 cancel 位。
+            .setPositiveButton(R.string.menu_project_import) { _, _ -> launchProjectImport() }
+            .setNeutralButton(R.string.menu_project_update) { _, _ -> startUpdate() }
+            .setNegativeButton(android.R.string.cancel, null)
             .show()
     }
 
@@ -774,7 +773,6 @@ class MainActivity : Activity() {
         private const val MENU_SETTINGS = 3
         private const val MENU_PROJECT = 4
         private const val MENU_PROJECT_UPDATE = 11
-        private const val MENU_PROJECT_INFO = 5
         private const val MENU_IMPORT = 6
         private const val MENU_COPY = 7
         private const val MENU_LOG = 8

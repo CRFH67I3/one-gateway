@@ -5,10 +5,11 @@
 的手机上点按，靠 uiautomator 的节点树判断界面，靠 `/health` 判断网关真的起来了。
 
 覆盖三段：
-  1. 首装覆盖层：「导入网关项目压缩包」在上、「自动导入最新版」在下；
-  2. 自动导入：下载 → 解压 → 起服务 → 面板，且进程不被甩回桌面；
-  3. 菜单拆分：导入 / 更新是两个独立入口，点「更新」复用同一套下载流程，
-     更新后网关重新跑起来（这条同时验证 release 最小化构建没有把外壳裁坏）。
+  1. 首装覆盖层：「手动更新（选择压缩包）」在上、「自动更新（联网下载）」在下；
+  2. 自动更新：下载 → 解压 → 起服务 → 面板，且进程不被甩回桌面；
+  3. 菜单两项：手动更新 / 自动更新是两个独立入口，点「自动更新」复用同一套
+     下载流程，更新后网关重新跑起来（这条同时验证 release 最小化构建没有把外壳
+     裁坏）；「项目信息」已并入「关于与项目信息」，不再单列。
 
 前置条件：
   * 手机上装好了本次构建的 APK（建议先 `adb shell pm clear` 清成首装状态）；
@@ -32,9 +33,11 @@ import urllib.request
 
 PKG = "com.workbuddy2api.hub"
 ACTIVITY = "%s/.MainActivity" % PKG
-IMPORT_LABEL = "导入网关项目压缩包"
-AUTO_LABEL = "自动导入最新版（联网下载）"
-UPDATE_LABEL = "更新网关项目（联网下载）"
+OVERLAY_MANUAL = "手动更新（选择压缩包）"
+OVERLAY_AUTO = "自动更新（联网下载）"
+MENU_MANUAL = "手动更新"
+MENU_AUTO = "自动更新"
+MENU_ABOUT = "关于与项目信息"
 DOWNLOAD_MARKERS = ("正在连接下载地址", "正在下载网关项目")
 INSTALL_MARKER = "下载完成，正在解压"
 UPDATE_MARKERS = ("正在连接下载地址", "正在下载最新版本", "正在下载网关项目",
@@ -127,6 +130,14 @@ def find(nodes, needle):
     """按可见文字或 contentDescription 找节点。"""
     for node in nodes:
         if needle in label(node):
+            return node
+    return None
+
+
+def find_exact(nodes, text):
+    """整条文本完全相等才算——用来断言「某个旧条目已经不存在」。"""
+    for node in nodes:
+        if label(node) == text:
             return node
     return None
 
@@ -259,18 +270,18 @@ def main():
     shell("am start -W -n %s >/dev/null" % ACTIVITY)
     time.sleep(3)
     nodes = dump_ui()
-    import_node = find(nodes, IMPORT_LABEL)
-    auto_node = find(nodes, AUTO_LABEL)
-    check("有「%s」按钮" % IMPORT_LABEL, import_node is not None)
-    check("有「%s」按钮" % AUTO_LABEL, auto_node is not None)
+    import_node = find(nodes, OVERLAY_MANUAL)
+    auto_node = find(nodes, OVERLAY_AUTO)
+    check("有「%s」按钮" % OVERLAY_MANUAL, import_node is not None)
+    check("有「%s」按钮" % OVERLAY_AUTO, auto_node is not None)
     if import_node and auto_node:
-        check("自动导入按钮在导入按钮下方",
+        check("自动更新按钮在手动更新按钮下方",
               auto_node["bounds"][1] > import_node["bounds"][1],
               "import top=%d auto top=%d" % (import_node["bounds"][1], auto_node["bounds"][1]))
     if auto_node is None:
-        sys.exit("找不到自动导入按钮，后续步骤无法进行（App 可能已经不是首装状态）")
+        sys.exit("找不到自动更新按钮，后续步骤无法进行（App 可能已经不是首装状态）")
 
-    print("== 点击自动导入")
+    print("== 点击自动更新")
     tap(auto_node)
     saw_download = saw_install = False
     deadline = time.time() + 180
@@ -282,7 +293,7 @@ def main():
             saw_download = True
         if INSTALL_MARKER in joined:
             saw_install = True
-        if find(nodes, IMPORT_LABEL) is None:
+        if find(nodes, OVERLAY_MANUAL) is None:
             break
     # 2.5MB 的包在好网下两三秒就下完了，抓不到进度文案不代表没下载。
     print("  [info] 抓到下载进度文案: %s" % ("是" if saw_download else "否（可能太快）"))
@@ -323,33 +334,53 @@ def main():
         print("    health: %s" % body[:160])
 
     nodes = dump_ui()
-    check("首装覆盖层已消失", find(nodes, IMPORT_LABEL) is None)
+    check("首装覆盖层已消失", find(nodes, OVERLAY_MANUAL) is None)
     panel_text = " | ".join(n["text"].replace("\n", " ") for n in nodes if n["text"])[:200]
     check("面板有内容", len([n for n in nodes if n["text"]]) > 3, "界面几乎空白：%s" % panel_text)
     print("    面板文字: %s" % panel_text)
 
     # ---------------------------------------------------------------- 菜单拆分
-    print("== 菜单：导入与更新是两个入口")
+    print("== 菜单：手动更新与自动更新是两个入口")
     check("能打开「更多」菜单", open_menu())
     nodes = dump_ui()
-    menu_import = find(nodes, IMPORT_LABEL)
-    menu_update = find(nodes, UPDATE_LABEL)
-    check("菜单里有「%s」" % IMPORT_LABEL, menu_import is not None)
-    check("菜单里有「%s」" % UPDATE_LABEL, menu_update is not None)
+    menu_manual = find(nodes, MENU_MANUAL)
+    menu_auto = find(nodes, MENU_AUTO)
+    check("菜单里有「%s」" % MENU_MANUAL, menu_manual is not None)
+    check("菜单里有「%s」" % MENU_AUTO, menu_auto is not None)
     # 旧的合并条目必须消失，否则用户还是分不清这两个动作
     check("旧的「导入/更新网关项目」已不存在", find(nodes, "导入/更新") is None)
-    if menu_update is None:
+    check("旧的「导入网关项目压缩包」已不存在", find(nodes, "导入网关项目") is None)
+    # 项目信息已经并进「关于与项目信息」，菜单里不该再有一个单独的项目信息
+    check("「项目信息」不再单列", find_exact(nodes, "项目信息") is None)
+    check("菜单里有「%s」" % MENU_ABOUT, find(nodes, MENU_ABOUT) is not None)
+    if menu_auto is None:
         shell("input keyevent KEYCODE_BACK")
-        sys.exit("菜单里没有「更新」，后续步骤无法进行（装的可能是旧包）")
-    if menu_import and menu_update:
-        check("「更新」排在「导入」之后",
-              menu_update["bounds"][1] >= menu_import["bounds"][1],
-              "import top=%d update top=%d"
-              % (menu_import["bounds"][1], menu_update["bounds"][1]))
+        sys.exit("菜单里没有「自动更新」，后续步骤无法进行（装的可能是旧包）")
+    if menu_manual and menu_auto:
+        check("「自动更新」排在「手动更新」之后",
+              menu_auto["bounds"][1] >= menu_manual["bounds"][1],
+              "manual top=%d auto top=%d"
+              % (menu_manual["bounds"][1], menu_auto["bounds"][1]))
+
+    print("== 关于与项目信息：版本与目录在同一页")
+    about = find(nodes, MENU_ABOUT)
+    if about:
+        tap(about)
+        time.sleep(1)
+        nodes = dump_ui()
+        joined = "\n".join(n["text"] for n in nodes if n["text"])
+        check("关于里有 App 版本", "App 版本" in joined, joined[:200])
+        check("关于里有网关版本", "版本：" in joined, joined[:200])
+        check("关于里有项目目录", "项目目录" in joined, joined[:200])
+        check("关于里不需要凭证", "凭证" not in joined, joined[:200])
+        shell("input keyevent KEYCODE_BACK")
+        time.sleep(0.5)
+        if not open_menu():
+            sys.exit("重新打开菜单失败")
 
     # ---------------------------------------------------------------- 更新流程
-    print("== 点「更新」：走与自动导入相同的下载流程")
-    tap(menu_update)
+    print("== 点「自动更新」：走与首装相同的下载流程")
+    tap(menu_auto)
     saw_update = relaunched = False
     status = ""
     deadline = time.time() + 300

@@ -143,7 +143,7 @@ class ShellWiringTests(unittest.TestCase):
 
 
 class MenuSplitTests(unittest.TestCase):
-    """右上角菜单：导入与更新是两个独立入口，更新复用自动导入的下载流程。"""
+    """右上角菜单：手动更新与自动更新是两个独立入口，更新复用自动导入的下载流程。"""
 
     def setUp(self):
         self.main = read(os.path.join(JAVA, "MainActivity.kt"))
@@ -153,12 +153,37 @@ class MenuSplitTests(unittest.TestCase):
     def test_two_menu_items(self):
         self.assertIn('name="menu_project_import"', self.strings)
         self.assertIn('name="menu_project_update"', self.strings)
-        # 「导入/更新」合在一起的旧文案正是这次要拆掉的东西
-        self.assertNotIn("导入/更新", self.strings)
         self.assertIn("MENU_PROJECT_UPDATE", self.main)
-        # 两个入口都在菜单里，且「更新」排在「导入」之后
+        # 两个入口都在菜单里，且「自动更新」排在「手动更新」之后
         self.assertLess(self.main.index("MENU_PROJECT, 2"),
                         self.main.index("MENU_PROJECT_UPDATE, 3"))
+
+    def test_menu_wording(self):
+        # 用户看到的两个词就是「手动更新」「自动更新」：换一份代码的两条路，
+        # 不存在「先导入项目」这种前置动作。
+        self.assertIn('name="menu_project_import">手动更新<', self.strings)
+        self.assertIn('name="menu_project_update">自动更新<', self.strings)
+        # 旧文案必须彻底消失，否则菜单里会出现两种叫法
+        for stale in ("导入网关项目压缩包", "更新网关项目（联网下载）", "导入/更新"):
+            self.assertNotIn(stale, self.strings)
+        # 首装覆盖层的两个按钮同口径：手动更新 / 自动更新
+        self.assertIn("手动更新（选择压缩包）", self.strings)
+        self.assertIn("自动更新（联网下载）", self.strings)
+
+    def test_manual_update_needs_no_credential(self):
+        # 手动更新只做三件事：读选中 ZIP 的输入流 → 解压 → 换指针。
+        # 任何「凭证/许可证/激活码」式的校验都不该出现在这条路径上。
+        body = self.main[self.main.index("private fun importProject("):]
+        body = body[: body.index("\n    }\n")]
+        self.assertIn("GatewayBridge.stageZip(", body)
+        self.assertIn("applyProject(zip)", body)
+        for word in ("凭证", "credential", "Credential", "license", "License"):
+            self.assertNotIn(word, body)
+        # 安装入口本身也不带身份参数：ZIP 进、结果出
+        bridge = read(os.path.join(JAVA, "GatewayBridge.kt"))
+        install = bridge[bridge.index("fun installProject("):]
+        install = install[: install.index("\n    fun ")]
+        self.assertNotIn("credential", install.lower())
 
     def test_update_uses_auto_import_flow(self):
         body = self.main[self.main.index("private fun startUpdate()"):]
@@ -191,6 +216,48 @@ class MenuSplitTests(unittest.TestCase):
         # 更新失败时旧项目还在：收掉覆盖层，别把还能用的面板挡死
         self.assertIn("overlay.visibility = View.GONE", body)
         self.assertIn("hasProject", body)
+
+
+class AboutMergeTests(unittest.TestCase):
+    """「项目信息」并进「关于」：一页里同时看到 App 版本和跑的是哪份网关。"""
+
+    def setUp(self):
+        self.main = read(os.path.join(JAVA, "MainActivity.kt"))
+        self.strings = read(os.path.join(ANDROID, "app", "src", "main", "res",
+                                        "values", "strings.xml"))
+        self.about = self.main[self.main.index("private fun showAbout("):]
+        self.about = self.about[: self.about.index("\n    }\n")]
+
+    def test_project_info_is_gone_as_separate_entry(self):
+        self.assertNotIn('name="menu_project_info"', self.strings)
+        self.assertNotIn("MENU_PROJECT_INFO", self.main)
+        self.assertNotIn("showProjectInfo", self.main)
+        # 菜单里只剩一项，名字点明它同时是项目信息
+        self.assertIn('name="menu_about">关于与项目信息<', self.strings)
+
+    def test_about_shows_both_app_and_project(self):
+        # App 版本来自 BuildConfig，网关版本等来自 describeProject / Prefs
+        self.assertIn("BuildConfig.VERSION_NAME", self.about)
+        for key in ("project_version", "project_imported", "project_path",
+                    "project_panel", "project_data"):
+            self.assertIn("R.string.%s" % key, self.about, key)
+        self.assertIn("GatewayBridge.describeProject(", self.about)
+        self.assertIn("GatewayBridge.dataDir(", self.about)
+
+    def test_about_offers_both_update_paths(self):
+        # 看着版本号发现旧了，就地更新：两个按钮就是两个更新入口
+        self.assertIn("setPositiveButton(R.string.menu_project_import", self.about)
+        self.assertIn("setNeutralButton(R.string.menu_project_update", self.about)
+        self.assertIn("launchProjectImport()", self.about)
+        self.assertIn("startUpdate()", self.about)
+
+    def test_about_without_project_explains_both_paths(self):
+        self.assertIn("R.string.project_none_hint", self.about)
+        hint = self.strings[self.strings.index('name="project_none_hint"'):]
+        hint = hint[: hint.index("</string>")]
+        self.assertIn("手动更新", hint)
+        self.assertIn("自动更新", hint)
+        self.assertIn("不需要凭证", hint)
 
 
 class BuildVariantTests(unittest.TestCase):
