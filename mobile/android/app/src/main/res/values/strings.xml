@@ -8,9 +8,11 @@
     <string name="status_starting">正在启动网关…</string>
     <string name="status_stopped">网关已停止</string>
     <string name="status_no_project">尚未导入网关项目</string>
+    <string name="status_failed">启动失败：%1$s</string>
     <string name="overlay_idle">网关当前没有运行。\n启动后这里会显示与电脑版一致的管理面板。</string>
     <string name="overlay_starting">正在启动，首次会初始化账号池与模型目录…</string>
     <string name="overlay_failed">面板加载失败：%1$s</string>
+    <string name="overlay_start_failed">网关没能启动：\n\n%1$s</string>
     <string name="overlay_action">启动网关</string>
     <string name="overlay_no_project">这个 App 只是运行环境，本身不带网关。\n\n点下面的「自动导入最新版」会直接联网下载仓库最新代码并导入，装好即可启动；也可以到 GitHub 仓库点 Code → Download ZIP，再手动导入压缩包。</string>
     <string name="overlay_import_project">导入网关项目压缩包</string>

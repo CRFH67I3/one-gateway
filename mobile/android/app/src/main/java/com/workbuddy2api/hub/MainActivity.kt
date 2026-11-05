@@ -72,7 +72,12 @@ class MainActivity : Activity() {
      */
     private var autoImporting = false
 
-    private data class Health(val reachable: Boolean, val accounts: Int, val usable: Int)
+    private data class Health(
+        val reachable: Boolean,
+        val accounts: Int,
+        val usable: Int,
+        val error: String = "",
+    )
 
     private val poller = object : Runnable {
         override fun run() {
@@ -643,7 +648,19 @@ class MainActivity : Activity() {
     }
 
     // ---------------------------------------------------------------- 状态
+    /**
+     * 探活。**先问自己的运行环境，再看端口通不通。**
+     *
+     * 只看 `127.0.0.1:<port>/health` 是不够的：端口被别的进程占着时（典型场景是
+     * 用户在同一台手机的 Termux 里也跑着一份网关），HTTP 探活会探到**别人**，
+     * 界面显示「运行中」、WebView 载入别人的面板，而本 App 的网关其实根本没起来。
+     * 运行环境（`GatewayService.lastStatus`）才是「我们这份有没有在跑」的唯一真源。
+     */
     private fun fetchHealth(): Health {
+        val state = GatewayService.lastStatus
+        if (state == null || !state.optBoolean("running")) {
+            return Health(false, 0, 0, state?.optString("error").orEmpty())
+        }
         val port = Prefs.port(this)
         val url = URL("http://127.0.0.1:$port/health")
         val connection = url.openConnection() as HttpURLConnection
@@ -695,14 +712,22 @@ class MainActivity : Activity() {
             }
         } else {
             statusDot.setBackgroundResource(R.drawable.dot_idle)
-            statusText.text = if (GatewayService.active) {
-                getString(R.string.status_starting)
-            } else {
-                getString(R.string.status_stopped)
-            }
-            if (loadedUrl == null) {
+            if (health.error.isNotBlank()) {
+                // 起不来时把原因摆出来。只说「已停止」用户不知道下一步做什么，
+                // 而端口被占用（同一台手机上还跑着另一份网关）是最常见的一种。
+                statusText.text = getString(R.string.status_failed, health.error)
                 overlay.visibility = View.VISIBLE
-                overlayText.text = getString(R.string.overlay_idle)
+                overlayText.text = getString(R.string.overlay_start_failed, health.error)
+            } else {
+                statusText.text = if (GatewayService.active) {
+                    getString(R.string.status_starting)
+                } else {
+                    getString(R.string.status_stopped)
+                }
+                if (loadedUrl == null) {
+                    overlay.visibility = View.VISIBLE
+                    overlayText.text = getString(R.string.overlay_idle)
+                }
             }
         }
     }

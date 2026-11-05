@@ -129,6 +129,15 @@ class ShellWiringTests(unittest.TestCase):
         self.assertIn("PendingIntent.getActivity", body)
         self.assertIn("AlarmManager", body)
 
+    def test_status_comes_from_our_own_runtime(self):
+        """端口被别人占着时不能假「运行中」——状态必须以运行环境为准。"""
+        health_body = self.main[self.main.index("private fun fetchHealth()"):]
+        check_at = health_body.index("GatewayService.lastStatus")
+        http_at = health_body.index("openConnection()")
+        self.assertLess(check_at, http_at, "必须先确认是自己的网关在跑，再去探 /health")
+        self.assertIn('name="status_failed"', self.strings)
+        self.assertIn('name="overlay_start_failed"', self.strings)
+
 
 class InstallContractTests(unittest.TestCase):
     """`wb_hub_env.install()` 面对真包结构时的行为。"""
@@ -208,6 +217,21 @@ class InstallContractTests(unittest.TestCase):
         payload = json.loads(wb_hub_env.loaded())
         self.assertTrue(payload["ok"])
         self.assertFalse(payload["loaded"])
+
+    def test_port_conflict_is_explained(self):
+        """端口被占用要给「怎么解决」，不是一句 listen failed。"""
+        import errno
+
+        busy = OSError(errno.EADDRINUSE, "Address already in use")
+        message = wb_hub_env._listen_error(busy, 8788)
+        self.assertIn("8788", message)
+        self.assertIn("占用", message)
+        # 换端口是这里唯一能让用户自己解决的动作，必须出现在提示里。
+        self.assertIn("端口设置", message)
+
+        other = wb_hub_env._listen_error(OSError(errno.EACCES, "Permission denied"), 80)
+        self.assertIn("80", other)
+        self.assertNotIn("端口设置", other)
 
 
 @unittest.skipUnless(os.environ.get("WB_LIVE_IMPORT") == "1",

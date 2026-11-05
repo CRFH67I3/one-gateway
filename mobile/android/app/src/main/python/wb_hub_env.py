@@ -379,13 +379,29 @@ def start(project, data, port, lan):
             _ERROR = str(exc.code or "gateway refused to start")
             _SERVER = None
         except OSError as exc:
-            _ERROR = "listen failed: %s" % exc
+            _ERROR = _listen_error(exc, port)
             _SERVER = None
         except Exception as exc:
             _ERROR = "%s: %s" % (type(exc).__name__, exc)
             _SERVER = None
             _traceback_to_log()
         return _dump(_status_locked())
+
+
+def _listen_error(exc, port):
+    """把 bind 失败翻译成用户能照着做的一句话。
+
+    手机上最常见的不是权限问题，而是**同一个端口上已经有一份网关**：比如用户
+    在 Termux 里也跑着 PC 版脚本，或者上一次的进程没退干净。这时网关自己起不来，
+    但 `127.0.0.1:<port>` 仍然是通的（通的是别人的进程），界面若不看这里的
+    error，就会显示「运行中」并把别人的面板当成自己的——所以这条错误必须说清楚。
+    """
+    busy = getattr(exc, "errno", None) in (98, 48, 10048) or "in use" in str(exc).lower()
+    if busy:
+        return ("端口 %d 已被占用：这台手机上可能还有另一份网关在跑（例如 Termux 里"
+                "的脚本），或上一次没有正常退出。到菜单「端口设置」换一个端口再启动，"
+                "或先关掉占用的那一份。" % int(port))
+    return "监听 %d 端口失败：%s" % (int(port), exc)
 
 
 def _traceback_to_log():
