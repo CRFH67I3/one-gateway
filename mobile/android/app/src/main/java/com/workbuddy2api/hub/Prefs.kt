@@ -42,12 +42,6 @@ object Prefs {
         prefs(context).edit().putBoolean(KEY_AUTOSTART, enabled).apply()
     }
 
-    fun bundleStamp(context: Context): String? = prefs(context).getString(KEY_BUNDLE_STAMP, null)
-
-    fun setBundleStamp(context: Context, stamp: String) {
-        prefs(context).edit().putString(KEY_BUNDLE_STAMP, stamp).apply()
-    }
-
     /** 当前生效的网关项目根目录（指向 projects/<时间戳>）。 */
     fun projectPath(context: Context): String? = prefs(context).getString(KEY_PROJECT_PATH, null)
 

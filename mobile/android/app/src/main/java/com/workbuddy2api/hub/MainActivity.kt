@@ -394,8 +394,8 @@ class MainActivity : Activity() {
     /**
      * 选一个网关项目压缩包。
      *
-     * type 故意写 `*/*`：不同文件管理器给 .zip 报的 MIME 并不统一
-     * （application/zip / application/x-zip-compressed / octet-stream 都见过），
+     * type 故意留成通配：不同文件管理器给 .zip 报的 MIME 并不统一
+     * （application/zip、application/x-zip-compressed、octet-stream 都见过），
      * 限定成 zip 会让一部分机型里文件直接变灰选不中。选中后由 Python 侧校验，
      * 不是 ZIP 会明确报错，比「选不中」好排查。
      */
