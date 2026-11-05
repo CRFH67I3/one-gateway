@@ -352,6 +352,8 @@ def main():
     check("旧的「导入网关项目压缩包」已不存在", find(nodes, "导入网关项目") is None)
     # 项目信息已经并进「关于与项目信息」，菜单里不该再有一个单独的项目信息
     check("「项目信息」不再单列", find_exact(nodes, "项目信息") is None)
+    # 手机端拿不到桌面客户端的解密密钥，导入凭证这条路不成立，入口已删
+    check("菜单里没有「导入账号凭证」", find(nodes, "导入账号凭证") is None)
     check("菜单里有「%s」" % MENU_ABOUT, find(nodes, MENU_ABOUT) is not None)
     if menu_auto is None:
         shell("input keyevent KEYCODE_BACK")

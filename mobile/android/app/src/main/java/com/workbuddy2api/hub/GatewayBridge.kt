@@ -96,11 +96,6 @@ object GatewayBridge {
         return invoke("status", root.absolutePath, dataDir(context).absolutePath)
     }
 
-    fun importCredential(context: Context, path: String): JSONObject {
-        val root = projectRoot(context) ?: return notInstalled()
-        return invoke("import_credential", root.absolutePath, dataDir(context).absolutePath, path)
-    }
-
     fun logTail(context: Context, lines: Int): String {
         val root = projectRoot(context) ?: return "还没有导入网关项目"
         return try {

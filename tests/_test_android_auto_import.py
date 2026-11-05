@@ -185,6 +185,17 @@ class MenuSplitTests(unittest.TestCase):
         install = install[: install.index("\n    fun ")]
         self.assertNotIn("credential", install.lower())
 
+    def test_no_credential_import_entry(self):
+        # 手机端拿不到桌面客户端的解密密钥，导入 .info 本来就不成立：
+        # 入口删掉，登录统一走面板的 OAuth。
+        self.assertNotIn("menu_import", self.strings)
+        self.assertNotIn("导入账号凭证", self.strings)
+        for stale in ("MENU_IMPORT", "launchImport", "importCredential",
+                      "REQUEST_IMPORT", "R.string.import_"):
+            self.assertNotIn(stale, self.main, stale)
+        bridge = read(os.path.join(JAVA, "GatewayBridge.kt"))
+        self.assertNotIn("fun importCredential", bridge)
+
     def test_update_uses_auto_import_flow(self):
         body = self.main[self.main.index("private fun startUpdate()"):]
         body = body[: body.index("\n    }\n")]

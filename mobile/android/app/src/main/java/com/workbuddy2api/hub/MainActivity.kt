@@ -262,10 +262,8 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (resultCode != RESULT_OK) return
         val uri = data?.data ?: return
-        when (requestCode) {
-            REQUEST_IMPORT -> importCredential(uri)
-            REQUEST_PROJECT -> importProject(uri)
-        }
+        // 现在只剩文件选择：手动更新的 ZIP。账号导入已经回到面板里做（OAuth）。
+        if (requestCode == REQUEST_PROJECT) importProject(uri)
     }
 
     /**
@@ -451,38 +449,6 @@ class MainActivity : Activity() {
         if (webView.canGoBack()) webView.goBack() else super.onBackPressed()
     }
 
-    private fun importCredential(uri: Uri) {
-        Toast.makeText(this, R.string.import_running, Toast.LENGTH_SHORT).show()
-        io.execute {
-            val target = File(cacheDir, "imported-credential.json")
-            val ok = try {
-                contentResolver.openInputStream(uri)?.use { input ->
-                    target.outputStream().use { output -> input.copyTo(output) }
-                }
-                true
-            } catch (t: Throwable) {
-                false
-            }
-            val message = if (!ok) {
-                getString(R.string.import_failed, "读取文件失败")
-            } else {
-                // 账号池在服务进程里，先确保服务已启动再导入。
-                GatewayService.send(this, GatewayService.ACTION_START)
-                Thread.sleep(400)
-                val result = GatewayBridge.importCredential(this, target.absolutePath)
-                if (result.optBoolean("ok")) {
-                    getString(R.string.import_ok, result.optInt("accounts", 0))
-                } else {
-                    getString(R.string.import_failed, result.optString("error"))
-                }
-            }
-            ui.post {
-                Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-                webView.reload()
-            }
-        }
-    }
-
     // ---------------------------------------------------------------- 菜单
     private fun showMenu(anchor: View) {
         val menu = PopupMenu(this, anchor)
@@ -493,11 +459,10 @@ class MainActivity : Activity() {
         // main。两条都不需要凭证，所以菜单里不再有「导入项目」这类前置动作。
         menu.menu.add(0, MENU_PROJECT, 2, getString(R.string.menu_project_import))
         menu.menu.add(0, MENU_PROJECT_UPDATE, 3, getString(R.string.menu_project_update))
-        menu.menu.add(0, MENU_IMPORT, 4, getString(R.string.menu_import))
-        menu.menu.add(0, MENU_COPY, 5, getString(R.string.menu_copy))
-        menu.menu.add(0, MENU_LOG, 6, getString(R.string.menu_log))
-        menu.menu.add(0, MENU_ABOUT, 7, getString(R.string.menu_about))
-        menu.menu.add(0, MENU_EXIT, 8, getString(R.string.menu_exit))
+        menu.menu.add(0, MENU_COPY, 4, getString(R.string.menu_copy))
+        menu.menu.add(0, MENU_LOG, 5, getString(R.string.menu_log))
+        menu.menu.add(0, MENU_ABOUT, 6, getString(R.string.menu_about))
+        menu.menu.add(0, MENU_EXIT, 7, getString(R.string.menu_exit))
         menu.setOnMenuItemClickListener { item: MenuItem ->
             when (item.itemId) {
                 MENU_RESTART -> {
@@ -507,7 +472,6 @@ class MainActivity : Activity() {
                 MENU_SETTINGS -> showSettings()
                 MENU_PROJECT -> launchProjectImport()
                 MENU_PROJECT_UPDATE -> startUpdate()
-                MENU_IMPORT -> launchImport()
                 MENU_COPY -> copyApiBase()
                 MENU_LOG -> showLog()
                 MENU_ABOUT -> showAbout()
@@ -531,14 +495,6 @@ class MainActivity : Activity() {
         loadedUrl = null
         Toast.makeText(this, R.string.toast_exited, Toast.LENGTH_SHORT).show()
         finishAffinity()
-    }
-
-    private fun launchImport() {
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "*/*"
-        }
-        startActivityForResult(intent, REQUEST_IMPORT)
     }
 
     /**
@@ -767,13 +723,11 @@ class MainActivity : Activity() {
     }
 
     companion object {
-        private const val REQUEST_IMPORT = 1001
         private const val REQUEST_PROJECT = 1002
         private const val MENU_RESTART = 2
         private const val MENU_SETTINGS = 3
         private const val MENU_PROJECT = 4
         private const val MENU_PROJECT_UPDATE = 11
-        private const val MENU_IMPORT = 6
         private const val MENU_COPY = 7
         private const val MENU_LOG = 8
         private const val MENU_ABOUT = 9

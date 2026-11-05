@@ -56,7 +56,6 @@
          手动 = 你手上有一个 ZIP；自动 = 联网下仓库 main。都不需要任何凭证。 -->
     <string name="menu_project_import">手动更新</string>
     <string name="menu_project_update">自动更新</string>
-    <string name="menu_import">导入账号凭证</string>
     <string name="menu_copy">复制 API 地址</string>
     <string name="menu_log">查看启动日志</string>
     <string name="menu_about">关于与项目信息</string>
@@ -83,10 +82,7 @@
     <string name="settings_hint">修改端口或局域网开关会重启网关。面板默认密码 admin，登录后请立即修改；账号登录、配额与模型配置都在面板里完成，与电脑版完全一致。</string>
     <string name="settings_bad_port">端口需在 1024–65535 之间</string>
 
-    <!-- 导入与日志 -->
-    <string name="import_running">正在导入凭证…</string>
-    <string name="import_ok">导入成功，当前共 %1$d 个账号</string>
-    <string name="import_failed">导入失败：%1$s</string>
+    <!-- 日志 -->
     <string name="log_empty">暂无日志</string>
 
     <!-- 关于与项目信息（合并成一个对话框） -->
