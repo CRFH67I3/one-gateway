@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
-"""真机端到端测试：首装 → 点「自动导入最新版」→ 下载/解压/起服务 → 面板。
+"""真机端到端测试：首装自动导入 → 面板 → 菜单「更新」再走一遍下载流程。
 
-这是给 `MainActivity` 上那个按钮准备的验收脚本：不模拟、不 mock，直接在连着
+这是给 `MainActivity` 那两个入口准备的验收脚本：不模拟、不 mock，直接在连着
 的手机上点按，靠 uiautomator 的节点树判断界面，靠 `/health` 判断网关真的起来了。
+
+覆盖三段：
+  1. 首装覆盖层：「导入网关项目压缩包」在上、「自动导入最新版」在下；
+  2. 自动导入：下载 → 解压 → 起服务 → 面板，且进程不被甩回桌面；
+  3. 菜单拆分：导入 / 更新是两个独立入口，点「更新」复用同一套下载流程，
+     更新后网关重新跑起来（这条同时验证 release 最小化构建没有把外壳裁坏）。
 
 前置条件：
   * 手机上装好了本次构建的 APK（建议先 `adb shell pm clear` 清成首装状态）；
@@ -28,8 +34,11 @@ PKG = "com.workbuddy2api.hub"
 ACTIVITY = "%s/.MainActivity" % PKG
 IMPORT_LABEL = "导入网关项目压缩包"
 AUTO_LABEL = "自动导入最新版（联网下载）"
+UPDATE_LABEL = "更新网关项目（联网下载）"
 DOWNLOAD_MARKERS = ("正在连接下载地址", "正在下载网关项目")
 INSTALL_MARKER = "下载完成，正在解压"
+UPDATE_MARKERS = ("正在连接下载地址", "正在下载最新版本", "正在下载网关项目",
+                  "下载完成，正在更新")
 
 FAILS = []
 
@@ -205,6 +214,16 @@ def set_port(port):
     return True
 
 
+def open_menu():
+    """点右上角的「更多」，把菜单展开。"""
+    node = find(dump_ui(), "更多")
+    if node is None:
+        return False
+    tap(node)
+    time.sleep(1)
+    return True
+
+
 def health(local_port, device_port):
     """通过 adb forward 从电脑这一侧访问手机上的网关。"""
     adb("forward", "tcp:%d" % local_port, "tcp:%d" % device_port)
@@ -308,6 +327,54 @@ def main():
     panel_text = " | ".join(n["text"].replace("\n", " ") for n in nodes if n["text"])[:200]
     check("面板有内容", len([n for n in nodes if n["text"]]) > 3, "界面几乎空白：%s" % panel_text)
     print("    面板文字: %s" % panel_text)
+
+    # ---------------------------------------------------------------- 菜单拆分
+    print("== 菜单：导入与更新是两个入口")
+    check("能打开「更多」菜单", open_menu())
+    nodes = dump_ui()
+    menu_import = find(nodes, IMPORT_LABEL)
+    menu_update = find(nodes, UPDATE_LABEL)
+    check("菜单里有「%s」" % IMPORT_LABEL, menu_import is not None)
+    check("菜单里有「%s」" % UPDATE_LABEL, menu_update is not None)
+    # 旧的合并条目必须消失，否则用户还是分不清这两个动作
+    check("旧的「导入/更新网关项目」已不存在", find(nodes, "导入/更新") is None)
+    if menu_update is None:
+        shell("input keyevent KEYCODE_BACK")
+        sys.exit("菜单里没有「更新」，后续步骤无法进行（装的可能是旧包）")
+    if menu_import and menu_update:
+        check("「更新」排在「导入」之后",
+              menu_update["bounds"][1] >= menu_import["bounds"][1],
+              "import top=%d update top=%d"
+              % (menu_import["bounds"][1], menu_update["bounds"][1]))
+
+    # ---------------------------------------------------------------- 更新流程
+    print("== 点「更新」：走与自动导入相同的下载流程")
+    tap(menu_update)
+    saw_update = relaunched = False
+    status = ""
+    deadline = time.time() + 300
+    while time.time() < deadline:
+        time.sleep(2)
+        nodes = dump_ui()
+        joined = "\n".join(n["text"] for n in nodes if n["text"])
+        if any(marker in joined for marker in UPDATE_MARKERS):
+            saw_update = True
+        status = status_line(nodes)
+        # 更新完会重启进程（旧网关模块不能热替换），重启后网关应当自己跑起来
+        if "运行中" in status and not any(m in joined for m in UPDATE_MARKERS):
+            relaunched = True
+            break
+    print("  [info] 抓到更新进度文案: %s" % ("是" if saw_update else "否（可能太快）"))
+    check("更新后 App 回到前台", app_foreground(), resumed_activity()[:200])
+    check("更新后网关重新跑起来", relaunched, "状态栏: %s" % status[:160])
+    body = health(args.port, port)
+    check("更新后 /health 仍返回 200", bool(body), "更新后连不上网关")
+
+    nodes = dump_ui()
+    leftovers = [n["text"] for n in nodes if n["text"] and "正在下载" in n["text"]]
+    check("更新后没有残留的进度文案", not leftovers, "、".join(leftovers)[:160])
+    check("更新后仍是本 App 在监听 %d" % port, listener_uid(port) == uid,
+          "实际 uid=%d" % listener_uid(port))
 
     if not args.keep:
         shell("am force-stop %s" % PKG)

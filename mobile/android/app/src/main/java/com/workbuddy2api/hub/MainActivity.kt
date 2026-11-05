@@ -72,6 +72,15 @@ class MainActivity : Activity() {
      */
     private var autoImporting = false
 
+    /**
+     * 这一轮走的是「更新」还是「首次导入」。
+     *
+     * 两条路径的下载、解压、重启完全一致，只有文案不同：首装说「导入」，
+     * 装过之后说「更新」。用字段而不是参数传到最后，是因为进度回调分散在
+     * 好几处，只有这样才能让每一处文案都跟着同一轮的口径走。
+     */
+    private var autoImportIsUpdate = false
+
     private data class Health(
         val reachable: Boolean,
         val accounts: Int,
@@ -119,7 +128,10 @@ class MainActivity : Activity() {
         findViewById<ImageButton>(R.id.menuButton).setOnClickListener { showMenu(it) }
 
         // 只对「已经导入过项目」的机器自动启动：首次安装应当先看到导入引导。
-        if (Prefs.autoStart(this) && GatewayBridge.projectRoot(this) != null) {
+        // 重启进程安装新版本时会带上 EXTRA_AUTO_START——那时候必须起来，否则
+        // 用户刚更新完（或刚导入覆盖旧版本）会看到一个「已停止」的空壳。
+        val forceStart = intent?.getBooleanExtra(EXTRA_AUTO_START, false) == true
+        if ((Prefs.autoStart(this) || forceStart) && GatewayBridge.projectRoot(this) != null) {
             GatewayService.send(this, GatewayService.ACTION_START)
         }
     }
@@ -290,20 +302,38 @@ class MainActivity : Activity() {
     }
 
     /**
-     * 首次安装界面上的「自动导入」：直接下载仓库 main 的最新 ZIP 再导入。
+     * 菜单里的「更新网关项目」：走与首装「自动导入」完全相同的下载/解压流程。
+     *
+     * 没导入过就没有「更新」可言，退回导入语义——菜单里两项都在，用户点错时
+     * 期望的是「把事情办了」，而不是被一句「还没有项目」挡回来。
+     */
+    private fun startUpdate() {
+        if (autoImporting) return
+        startAutoImport(update = GatewayBridge.projectRoot(this) != null)
+    }
+
+    /**
+     * 「自动导入」：直接下载仓库 main 的最新 ZIP 再装上。
      *
      * 和手动导入相比只多了「下载」这一步——解压、切指针、重启进程全部复用
      * [applyProject]，两条路径的产物完全一致，不需要在手机上再验证一遍逻辑。
      * 下载在同一个单线程 executor 上排队，跟解压天然互斥。
+     *
+     * @param update 已经装过项目时用「更新」的口径（文案与状态栏都换成更新）。
      */
-    private fun startAutoImport() {
+    private fun startAutoImport(update: Boolean = false) {
         if (autoImporting) return
         autoImporting = true
+        autoImportIsUpdate = update
+        // 更新时面板还开着，也必须把覆盖层拉出来：下载 2.6MB 有好几秒，
+        // 只靠 Toast 看不到百分比，用户会以为点了没反应。
         overlay.visibility = View.VISIBLE
         overlayAction.isEnabled = false
         overlayAuto.isEnabled = false
-        overlayAuto.text = getString(R.string.auto_import_running)
+        overlayAuto.visibility = if (update) View.GONE else View.VISIBLE
+        overlayAuto.text = getString(if (update) R.string.update_running else R.string.auto_import_running)
         overlayText.text = getString(R.string.auto_import_connecting, 1, GatewayBridge.PROJECT_ZIP_URLS.size)
+        statusText.text = getString(if (update) R.string.status_updating else R.string.status_importing)
         io.execute {
             GatewayService.send(this, GatewayService.ACTION_STOP)
             Thread.sleep(300)
@@ -319,32 +349,52 @@ class MainActivity : Activity() {
                 onProgress = { pct, done, total ->
                     ui.post {
                         if (!autoImporting) return@post
-                        overlayText.text = if (pct >= 0 && total > 0) {
-                            getString(R.string.auto_import_progress, pct, formatBytes(done))
-                        } else {
-                            getString(R.string.auto_import_progress_unknown, formatBytes(done))
+                        overlayText.text = when {
+                            pct < 0 || total <= 0 ->
+                                getString(R.string.auto_import_progress_unknown, formatBytes(done))
+                            autoImportIsUpdate ->
+                                getString(R.string.update_downloading, pct, formatBytes(done))
+                            else ->
+                                getString(R.string.auto_import_progress, pct, formatBytes(done))
                         }
                     }
                 },
             )
             val zip = download.file
             if (zip == null) {
-                ui.post { finishAutoImport(getString(R.string.auto_import_failed, download.error)) }
+                val message = getString(
+                    if (update) R.string.update_failed else R.string.auto_import_failed,
+                    download.error,
+                )
+                ui.post { finishAutoImport(message) }
                 return@execute
             }
-            ui.post { overlayText.text = getString(R.string.auto_import_installing) }
-            applyProject(zip)
+            ui.post {
+                overlayText.text = getString(
+                    if (update) R.string.update_installing else R.string.auto_import_installing
+                )
+            }
+            applyProject(zip, update)
         }
     }
 
-    /** 自动导入失败后的收尾：恢复按钮与引导文案，让用户能直接再试一次。 */
+    /** 自动导入/更新失败后的收尾：恢复按钮与引导文案，让用户能直接再试一次。 */
     private fun finishAutoImport(message: String?) {
         autoImporting = false
+        val hasProject = GatewayBridge.projectRoot(this) != null
         overlayAction.isEnabled = true
         overlayAuto.isEnabled = true
+        // 自动导入按钮只服务首装：已经装过项目时它不该再占位置（更新走菜单）。
+        overlayAuto.visibility = if (hasProject) View.GONE else View.VISIBLE
         overlayAuto.text = getString(R.string.overlay_auto_import)
+        autoImportIsUpdate = false
         if (message != null) {
-            if (GatewayBridge.projectRoot(this) == null) {
+            if (hasProject) {
+                // 更新失败：旧项目还在、面板还能用，把覆盖层收起来只弹一句原因，
+                // 别让一个失败的提示挡住用户继续干活。
+                overlay.visibility = View.GONE
+                loadedUrl = null
+            } else {
                 overlayText.text = getString(R.string.overlay_no_project)
             }
             Toast.makeText(this, message, Toast.LENGTH_LONG).show()
@@ -354,23 +404,33 @@ class MainActivity : Activity() {
     /**
      * 把已经落到缓存的 ZIP 装上：解压 → 提示 → 重启。
      *
-     * 手动导入与自动导入共用，避免两条路径在「成功后是否重启」「失败文案」
-     * 这类细节上跑偏。调用方必须在后台线程（内部会做解压重活）。
+     * 手动导入、自动导入、菜单更新三条路径共用，避免它们在「成功后是否重启」
+     * 「失败文案」这类细节上跑偏。调用方必须在后台线程（内部会做解压重活）。
+     *
+     * @param update 已经装过项目时的覆盖升级，决定成功/失败用「更新」口径的文案。
      */
-    private fun applyProject(zip: File) {
+    private fun applyProject(zip: File, update: Boolean = false) {
         val result = GatewayBridge.installProject(this, zip)
         // 解释器调用留在后台线程：进 UI 线程前就把「要不要重启」问清楚。
         val needsRestart = result.optBoolean("ok") && GatewayBridge.gatewayLoadedInProcess()
         ui.post {
             if (!result.optBoolean("ok")) {
-                finishAutoImport(getString(R.string.project_import_failed, result.optString("error")))
+                val message = getString(
+                    if (update) R.string.update_failed else R.string.project_import_failed,
+                    result.optString("error"),
+                )
+                finishAutoImport(message)
                 return@post
             }
             val version = result.optString("version").ifBlank { "未知版本" }
             val files = result.optInt("files_extracted", 0)
             Toast.makeText(
                 this,
-                getString(R.string.project_import_ok, version, files),
+                getString(
+                    if (update) R.string.update_ok else R.string.project_import_ok,
+                    version,
+                    files,
+                ),
                 Toast.LENGTH_LONG,
             ).show()
             finishAutoImport(null)
@@ -399,11 +459,13 @@ class MainActivity : Activity() {
      * 进程一死，就没有任何线程能把界面再拉到前台了，所以「回来」这件事必须交给
      * 系统：用一个 PendingIntent 闹钟在 600ms 后重新拉起 MainActivity。600ms 是
      * 给旧进程退出留的时间，太短会在新进程起来前又被系统判定为上一个实例。
+     * 拉起时带 EXTRA_AUTO_START：刚装完新版本，无论「打开时自动启动」开着没有，
+     * 都该把网关跑起来。
      */
     private fun restartApp() {
         val intent = Intent(this, MainActivity::class.java).addFlags(
             Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-        )
+        ).putExtra(EXTRA_AUTO_START, true)
         val pending = PendingIntent.getActivity(
             this,
             RESTART_REQUEST,
@@ -459,13 +521,17 @@ class MainActivity : Activity() {
         val menu = PopupMenu(this, anchor)
         menu.menu.add(0, MENU_RESTART, 0, getString(R.string.menu_restart))
         menu.menu.add(0, MENU_SETTINGS, 1, getString(R.string.menu_settings))
+        // 「导入」与「更新」是两件事：前者选本地 ZIP（离线、可装任意版本），
+        // 后者联网下仓库 main（一键升级）。合在一个入口里，用户每次都得先想
+        // 「我要的是哪一个」，而且「更新」还得先自己去找下载地址。
         menu.menu.add(0, MENU_PROJECT, 2, getString(R.string.menu_project_import))
-        menu.menu.add(0, MENU_PROJECT_INFO, 3, getString(R.string.menu_project_info))
-        menu.menu.add(0, MENU_IMPORT, 4, getString(R.string.menu_import))
-        menu.menu.add(0, MENU_COPY, 5, getString(R.string.menu_copy))
-        menu.menu.add(0, MENU_LOG, 6, getString(R.string.menu_log))
-        menu.menu.add(0, MENU_ABOUT, 7, getString(R.string.menu_about))
-        menu.menu.add(0, MENU_EXIT, 8, getString(R.string.menu_exit))
+        menu.menu.add(0, MENU_PROJECT_UPDATE, 3, getString(R.string.menu_project_update))
+        menu.menu.add(0, MENU_PROJECT_INFO, 4, getString(R.string.menu_project_info))
+        menu.menu.add(0, MENU_IMPORT, 5, getString(R.string.menu_import))
+        menu.menu.add(0, MENU_COPY, 6, getString(R.string.menu_copy))
+        menu.menu.add(0, MENU_LOG, 7, getString(R.string.menu_log))
+        menu.menu.add(0, MENU_ABOUT, 8, getString(R.string.menu_about))
+        menu.menu.add(0, MENU_EXIT, 9, getString(R.string.menu_exit))
         menu.setOnMenuItemClickListener { item: MenuItem ->
             when (item.itemId) {
                 MENU_RESTART -> {
@@ -474,6 +540,7 @@ class MainActivity : Activity() {
                 }
                 MENU_SETTINGS -> showSettings()
                 MENU_PROJECT -> launchProjectImport()
+                MENU_PROJECT_UPDATE -> startUpdate()
                 MENU_PROJECT_INFO -> showProjectInfo()
                 MENU_IMPORT -> launchImport()
                 MENU_COPY -> copyApiBase()
@@ -558,7 +625,7 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this)
             .setTitle(R.string.menu_project_info)
             .setMessage(body)
-            .setPositiveButton(R.string.project_update_action) { _, _ -> launchProjectImport() }
+            .setPositiveButton(R.string.project_update_action) { _, _ -> startUpdate() }
             .setNegativeButton(android.R.string.ok, null)
             .show()
     }
@@ -682,6 +749,11 @@ class MainActivity : Activity() {
     private fun render(health: Health) {
         val port = Prefs.port(this)
 
+        // 自动导入/更新期间，覆盖层与状态栏都归进度文案管：轮询每 2.5s 跑一次，
+        // 若在这里改写，会分别造成「进度被打断」「覆盖层被藏起来」「网关还没停干净
+        // 的瞬间把面板载进来」三种错觉。等收尾（finishAutoImport）之后再交给轮询。
+        if (autoImporting) return
+
         // 没导入项目时，这个 App 只是一个空壳：不提示「已停止」，而是直接把
         // 「导入压缩包」摆在最显眼的位置——这是首次安装后唯一该做的事。
         if (GatewayBridge.projectRoot(this) == null) {
@@ -689,12 +761,9 @@ class MainActivity : Activity() {
             statusText.text = getString(R.string.status_no_project)
             overlay.visibility = View.VISIBLE
             overlayAuto.visibility = View.VISIBLE
-            // 自动导入进行中时，覆盖层文案归下载进度管，这里不要抢。
-            if (!autoImporting) {
-                overlayText.text = getString(R.string.overlay_no_project)
-                overlayAction.text = getString(R.string.overlay_import_project)
-                overlayAction.isEnabled = true
-            }
+            overlayText.text = getString(R.string.overlay_no_project)
+            overlayAction.text = getString(R.string.overlay_import_project)
+            overlayAction.isEnabled = true
             return
         }
         overlayAction.text = getString(R.string.overlay_action)
@@ -736,9 +805,12 @@ class MainActivity : Activity() {
         private const val REQUEST_IMPORT = 1001
         private const val REQUEST_PROJECT = 1002
         private const val RESTART_REQUEST = 2001
+        /** 重启进程拉起界面时带上：刚装完新版本，必须把网关跑起来。 */
+        private const val EXTRA_AUTO_START = "com.workbuddy2api.hub.AUTO_START"
         private const val MENU_RESTART = 2
         private const val MENU_SETTINGS = 3
         private const val MENU_PROJECT = 4
+        private const val MENU_PROJECT_UPDATE = 11
         private const val MENU_PROJECT_INFO = 5
         private const val MENU_IMPORT = 6
         private const val MENU_COPY = 7

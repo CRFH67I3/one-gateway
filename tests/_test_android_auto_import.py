@@ -88,7 +88,7 @@ class ShellWiringTests(unittest.TestCase):
         self.assertIn("overlayAuto.setOnClickListener { startAutoImport() }", self.main)
         self.assertIn("GatewayBridge.downloadProjectZip(", self.main)
         # 下载完必须复用同一套安装逻辑（解压 → 切指针 → 重启）。
-        self.assertIn("applyProject(zip)", self.main)
+        self.assertIn("applyProject(zip, update)", self.main)
         self.assertIn("GatewayBridge.installProject(", self.main)
 
     def test_primary_url_is_the_mirror_the_user_asked_for(self):
@@ -137,6 +137,94 @@ class ShellWiringTests(unittest.TestCase):
         self.assertLess(check_at, http_at, "必须先确认是自己的网关在跑，再去探 /health")
         self.assertIn('name="status_failed"', self.strings)
         self.assertIn('name="overlay_start_failed"', self.strings)
+
+
+class MenuSplitTests(unittest.TestCase):
+    """右上角菜单：导入与更新是两个独立入口，更新复用自动导入的下载流程。"""
+
+    def setUp(self):
+        self.main = read(os.path.join(JAVA, "MainActivity.kt"))
+        self.strings = read(os.path.join(ANDROID, "app", "src", "main", "res",
+                                        "values", "strings.xml"))
+
+    def test_two_menu_items(self):
+        self.assertIn('name="menu_project_import"', self.strings)
+        self.assertIn('name="menu_project_update"', self.strings)
+        # 「导入/更新」合在一起的旧文案正是这次要拆掉的东西
+        self.assertNotIn("导入/更新", self.strings)
+        self.assertIn("MENU_PROJECT_UPDATE", self.main)
+        # 两个入口都在菜单里，且「更新」排在「导入」之后
+        self.assertLess(self.main.index("MENU_PROJECT, 2"),
+                        self.main.index("MENU_PROJECT_UPDATE, 3"))
+
+    def test_update_uses_auto_import_flow(self):
+        body = self.main[self.main.index("private fun startUpdate()"):]
+        body = body[: body.index("\n    }\n")]
+        self.assertIn("startAutoImport(update = ", body)
+        # 只保留一条下载实现：更新不得自己再写一遍下载逻辑
+        self.assertEqual(self.main.count("GatewayBridge.downloadProjectZip("), 1)
+
+    def test_update_shares_one_install_path(self):
+        # 解压 → 切指针 → 重启只有一份实现，三条入口共用
+        self.assertEqual(self.main.count("GatewayBridge.installProject("), 1)
+        self.assertEqual(self.main.count("private fun applyProject("), 1)
+        self.assertIn("applyProject(zip, update)", self.main)
+
+    def test_update_wording_is_used_while_updating(self):
+        for name in ("update_running", "update_failed", "update_ok",
+                     "update_installing", "update_downloading",
+                     "status_updating", "status_importing"):
+            self.assertIn('name="%s"' % name, self.strings)
+
+    def test_polling_does_not_overwrite_progress(self):
+        render = self.main[self.main.index("private fun render(health: Health)"):]
+        # 自动导入/更新期间，render 必须在碰覆盖层之前就返回
+        self.assertLess(render.index("if (autoImporting) return"),
+                        render.index("overlay.visibility"))
+
+    def test_update_failure_returns_to_panel(self):
+        body = self.main[self.main.index("private fun finishAutoImport("):]
+        body = body[: body.index("\n    }\n")]
+        # 更新失败时旧项目还在：收掉覆盖层，别把还能用的面板挡死
+        self.assertIn("overlay.visibility = View.GONE", body)
+        self.assertIn("hasProject", body)
+
+
+class BuildVariantTests(unittest.TestCase):
+    """debug 全量构建、release 最小化构建。"""
+
+    def setUp(self):
+        self.gradle = read(os.path.join(ANDROID, "app", "build.gradle.kts"))
+        self.rules = read(os.path.join(ANDROID, "app", "proguard-rules.pro"))
+        self.workflow = read(os.path.join(ROOT, ".github", "workflows", "mobile-android.yml"))
+
+    def _block(self, name):
+        body = self.gradle[self.gradle.index("%s {" % name):]
+        return body[: body.index("\n        }")]
+
+    def test_debug_is_full_build(self):
+        debug = self._block("debug")
+        self.assertIn("isMinifyEnabled = false", debug)
+        self.assertIn("isShrinkResources = false", debug)
+
+    def test_release_is_minified(self):
+        release = self._block("release")
+        self.assertIn("isMinifyEnabled = true", release)
+        self.assertIn("isShrinkResources = true", release)
+        self.assertIn("proguard-rules.pro", release)
+
+    def test_rules_keep_what_r8_would_break(self):
+        # Chaquopy 的类由解释器按名字查找，必须整份保留
+        self.assertIn("-keep class com.chaquo.python.** { *; }", self.rules)
+        # 清单里的三个组件由系统按类名实例化
+        for cls in ("HubApp", "MainActivity", "GatewayService"):
+            self.assertIn("com.workbuddy2api.hub.%s { *; }" % cls, self.rules)
+        # 外壳其余类只保名字：不能再用「整包 { *; }」把最小化废掉
+        self.assertNotIn("-keep class com.workbuddy2api.hub.** { *; }", self.rules)
+
+    def test_workflow_builds_both_variants(self):
+        self.assertIn(":app:assembleDebug", self.workflow)
+        self.assertIn(":app:assembleRelease", self.workflow)
 
 
 class InstallContractTests(unittest.TestCase):

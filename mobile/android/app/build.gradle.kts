@@ -93,14 +93,23 @@ android {
 
     buildTypes {
         debug {
+            // 调试包走「全量构建」：不混淆、不裁代码、不裁资源。
+            // 排查问题时堆栈里的类名/行号、反编译出来的 R 资源都能直接对上，
+            // 代价只是包体大一些——调试包不需要省体积。
+            isMinifyEnabled = false
+            isShrinkResources = false
+            isDebuggable = true
             // 有固定 keystore 就用它，让每次构建的调试包签名一致。
             if (!debugKeystorePath.isNullOrBlank()) {
                 signingConfig = signingConfigs.getByName("fixedDebug")
             }
         }
         release {
-            isMinifyEnabled = false
-            isShrinkResources = false
+            // 发布包走「最小化构建」：R8 裁掉未使用的代码与成员、资源裁剪去掉
+            // 没用到的资源，并做名字压缩。保留规则见 proguard-rules.pro——
+            // Chaquopy 的类要整份保留，清单里的组件按名字实例化也不能改名。
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = when {
                 !keystorePath.isNullOrBlank() -> signingConfigs.getByName("release")
