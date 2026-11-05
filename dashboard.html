@@ -2818,6 +2818,10 @@ if(!window.__NEXT_UI__ && defaultConsoleLayout) {
     '安装状态': 'Install status',
     '尚未开始': 'Not started',
     '更新服务未安装': 'Updater is not installed',
+    '本部署没有面板内安装能力': 'This deployment cannot install from the panel',
+    '更新服务状态不可用': 'Updater status is unavailable',
+    '更新服务已经安装，但读不到它的状态。请确认服务在运行：systemctl status workbuddy2api-hub-updater.path': 'The updater is installed but its status cannot be read. Check that the service is running: systemctl status workbuddy2api-hub-updater.path',
+    '面板内安装需要本机注册更新服务，当前部署没有检测到。手机 App：用 App 右上角菜单的「自动更新」；Linux 服务器：在部署目录执行 sudo sh ops/aliyun/install-updater.sh；便携包：解压运行即自带更新能力。': 'Installing from the panel needs an updater registered on this machine, and none was found. Mobile app: use "Update automatically" in the app menu. Linux server: run sudo sh ops/aliyun/install-updater.sh in the deployment directory. Portable package: the extracted package updates itself.',
     '等待安装': 'Queued',
     '正在下载更新包': 'Downloading update package',
     '正在校验更新包': 'Verifying update package',
@@ -15989,6 +15993,21 @@ const INSTALL_BUSY_STATES = ['queued','downloading','verifying','backing_up','st
   'applying','restoring','restarting','checking','rolling_back'];
 let LAST_INSTALL_STATE = 'idle';
 
+/* 面板内安装为什么点不了，取决于这台机器注册的是哪种更新通道：systemd 单元、
+   外部执行器（轮询 request.json）、还是便携包。只写一句「更新服务未安装」等于
+   把人晾在原地——手机 App 里根本没有可安装的服务（代码由 App 自己换），服务器
+   上则只是一条安装命令。所以按钮下方那行提示按通道给可执行的动作。 */
+function updateInstallHint(data){
+  data = data || {};
+  if(data.install_enabled === true) return '';
+  const channel = String(data.install_channel || '');
+  if(channel === 'systemd' || channel === 'external'){
+    return '更新服务已经安装，但读不到它的状态。请确认服务在运行：systemctl status workbuddy2api-hub-updater.path';
+  }
+  return '面板内安装需要本机注册更新服务，当前部署没有检测到。手机 App：用 App 右上角菜单的「自动更新」；'
+    + 'Linux 服务器：在部署目录执行 sudo sh ops/aliyun/install-updater.sh；便携包：解压运行即自带更新能力。';
+}
+
 function applyUpdateStatus(data){
   data = data || {};
   const failure = updateCheckFailure(data);
@@ -16017,7 +16036,7 @@ function applyUpdateStatus(data){
     restarting: '正在重启网关', checking: '正在检查网关',
     succeeded: '更新完成', restored: '回退完成',
     rolling_back: '更新失败，正在回滚',
-    rolled_back: '更新已回滚', failed: '更新失败', unavailable: '更新服务未安装'
+    rolled_back: '更新已回滚', failed: '更新失败', unavailable: '更新服务状态不可用'
   };
   const installStatus = document.getElementById('setUpdateInstallStatus');
   if(installStatus){
@@ -16035,13 +16054,15 @@ function applyUpdateStatus(data){
       && !!data.latest_tag && !!data.release_url && !data.checking && !busy
       && installState !== 'unavailable';
     install.disabled = !canInstall;
-    install.title = !data.install_enabled ? '更新服务未安装'
+    install.title = !data.install_enabled ? '本部署没有面板内安装能力'
       : busy ? '已有更新任务正在运行'
       : data.checking ? '正在检查更新，请稍候'
       : !data.update_available ? '当前没有可安装的新版本'
       : (!data.latest_tag || !data.release_url) ? '请先点击立即检查更新' : '';
     const hint = document.getElementById('setUpdateInstallHint');
-    if(hint) hint.textContent = canInstall ? '发现新版本，点击“安装更新”开始安装。' : install.title;
+    if(hint) hint.textContent = canInstall
+      ? '发现新版本，点击“安装更新”开始安装。'
+      : (updateInstallHint(data) || install.title);
   }
 }
 

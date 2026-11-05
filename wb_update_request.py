@@ -71,10 +71,27 @@ def external_enabled():
             or os.path.exists(os.path.join(REQUEST_DIR, "executor.json")))
 
 
+def install_channel():
+    """Which updater this deployment actually registered, for the panel's hint.
+
+    "更新服务未安装" on its own leaves the user with nothing to do: the fix is
+    different per deployment (install the systemd unit / register an executor /
+    run from a portable package), and an Android or iOS shell has no updater at
+    all because the app replaces the project itself. Reporting the channel lets
+    one panel build point at the right action.
+    """
+    if _systemd_enabled():
+        return "systemd"
+    if external_enabled():
+        return "external"
+    if wb_update_portable.available():
+        return "portable"
+    return "none"
+
+
 def install_enabled():
     """The panel may install when either the unit or a portable package is here."""
-    return (_systemd_enabled() or external_enabled()
-            or wb_update_portable.available())
+    return install_channel() != "none"
 
 
 def _version_tuple(tag):
@@ -218,14 +235,15 @@ def status():
     if _systemd_enabled() or external_enabled():
         return _bridge_status()
     if wb_update_portable.available():
-        return {"install_enabled": True,
+        return {"install_enabled": True, "install_channel": "portable",
                 "installation": wb_update_portable.status()}
-    return {"install_enabled": False,
+    return {"install_enabled": False, "install_channel": install_channel(),
             "installation": {"state": "idle", "version": "", "message": ""}}
 
 
 def _bridge_status():
-    result = {"install_enabled": True, "installation": _read_root_status()}
+    result = {"install_enabled": True, "install_channel": install_channel(),
+              "installation": _read_root_status()}
     current = result["installation"]
     if (os.path.exists(REQUEST_FILE)
             and current.get("state") not in ACTIVE_STATES):

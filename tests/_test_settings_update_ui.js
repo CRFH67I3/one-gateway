@@ -253,6 +253,21 @@ const posts = () => calls.filter(c => c.method === 'POST');
   check('有可用稳定更新且更新服务已安装时按钮可用', installBtn.disabled === false);
   api.applyUpdateStatus({...updatesPayload, install_enabled: false});
   check('没有安装服务时按钮保持禁用', installBtn.disabled === true);
+
+  // 光是「更新服务未安装」等于把人晾在原地：提示必须给出这一步该做什么。
+  const hintEl = element('setUpdateInstallHint');
+  api.applyUpdateStatus({...updatesPayload, install_enabled: false,
+                         install_channel: 'none'});
+  check('没有更新通道时提示给出两条安装路径',
+        hintEl.textContent.indexOf('ops/aliyun/install-updater.sh') !== -1
+        && hintEl.textContent.indexOf('自动更新') !== -1,
+        hintEl.textContent);
+  api.applyUpdateStatus({...updatesPayload, install_enabled: false,
+                         install_channel: 'systemd'});
+  check('服务已注册但读不到状态时不再说「没装」',
+        hintEl.textContent.indexOf('systemctl status workbuddy2api-hub-updater.path') !== -1
+        && hintEl.textContent.indexOf('install-updater.sh') === -1,
+        hintEl.textContent);
   api.applyUpdateStatus({...updatesPayload, installation: {state: 'applying'}});
   check('安装过程中按钮保持禁用', installBtn.disabled === true);
   api.applyUpdateStatus(updatesPayload);

@@ -194,6 +194,33 @@ export ANTHROPIC_API_KEY="你在看板设置中添加并绑定的API_Key"
 遇到上游 `400 / 11-128` 时，先按 [`docs/TROUBLESHOOTING-11-128.md`](docs/TROUBLESHOOTING-11-128.md) 收集同一请求的
 身份、最小请求和提示词对照结果；不要先轮换账号。
 
+### 面板内「安装更新」需要什么
+
+面板「设置 → 更新」里的 **安装更新** 不是随代码就有的。网关进程以普通用户运行，只负责
+写一份校验过的请求；真正替换文件的动作必须由本机的特权执行者完成。所以按钮可用与否，
+取决于这台机器注册了下面哪一种通道（都没有时按钮置灰，并直接告诉你当前是哪种部署、
+该去哪里装）：
+
+| 部署形态 | 怎么让它可用 |
+|---|---|
+| Linux + systemd（`/opt/workbuddy2api-hub`，`wbproxy` 用户） | `sudo sh ops/aliyun/install-updater.sh` |
+| Docker / NAS 等自带 supervisor | `WB_UPDATE_INSTALL_ENABLED=1` + `WB_UPDATE_EXECUTOR=external`（或请求目录里放 `executor.json`），由部署侧的循环脚本消费 `/run/workbuddy2api-hub-updater/request.json` |
+| 便携包（release zip，含 `release-manifest.json` 与 `wb_update_apply.py`） | 无需安装，解压运行即自带 |
+| 手机 App（Android / iOS） | 不适用：代码由 App 外壳替换，用 App 菜单里的「自动更新」 |
+
+`install-updater.sh` 会安装 `workbuddy2api-hub-updater.path` / `.service`、创建
+`/run/workbuddy2api-hub-updater`（root 与 `wbproxy` 组可写）、并给网关的 systemd drop-in
+写入 `WB_UPDATE_INSTALL_ENABLED=1`；脚本自身带失败回滚与安装后健康检查。装完确认：
+
+```bash
+systemctl status workbuddy2api-hub-updater.path   # Active: active (waiting)
+systemctl status workbuddy2api-hub-updater.service
+```
+
+装好之后，「安装更新」只做**手动**安装；「每天自动检查更新」默认关闭，且即使打开也只
+检查、不安装。
+
+
 ---
 
 ## 五、主要 API 端点

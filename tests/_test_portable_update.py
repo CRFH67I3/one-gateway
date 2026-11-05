@@ -378,6 +378,7 @@ class RequestTests(unittest.TestCase):
             self.assertTrue(R.install_enabled())
             self.assertEqual(R.status(), {
                 "install_enabled": True,
+                "install_channel": "portable",
                 "installation": {"state": "idle", "version": "",
                                  "message": ""},
             })

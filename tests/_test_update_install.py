@@ -173,5 +173,98 @@ class RequestQueueTests(unittest.TestCase):
                 self.assertFalse(os.path.exists(request_path))
 
 
+class InstallChannelTests(unittest.TestCase):
+    """面板按钮为什么点不了，得说清是哪一种部署。
+
+    只有一句「更新服务未安装」时用户无处可去：手机 App 里根本没有可安装的
+    服务（代码由 App 自己换），Linux 服务器上则只是一条安装命令。所以状态里
+    要带上通道，面板据此给动作。
+    """
+
+    def test_channel_reports_the_registered_updater(self):
+        cases = (
+            (dict(systemd=True, external=False, portable=False), "systemd"),
+            (dict(systemd=True, external=True, portable=True), "systemd"),
+            (dict(systemd=False, external=True, portable=False), "external"),
+            (dict(systemd=False, external=False, portable=True), "portable"),
+            (dict(systemd=False, external=False, portable=False), "none"),
+        )
+        for flags, expected in cases:
+            with self.subTest(expected=expected), \
+                    mock.patch.object(wb_update_request, "_systemd_enabled",
+                                      return_value=flags["systemd"]), \
+                    mock.patch.object(wb_update_request, "external_enabled",
+                                      return_value=flags["external"]), \
+                    mock.patch.object(wb_update_request.wb_update_portable,
+                                      "available", return_value=flags["portable"]):
+                self.assertEqual(wb_update_request.install_channel(), expected)
+                self.assertEqual(wb_update_request.install_enabled(),
+                                 expected != "none")
+
+    def test_status_carries_the_channel(self):
+        with mock.patch.object(wb_update_request, "_systemd_enabled", return_value=False), \
+                mock.patch.object(wb_update_request, "external_enabled", return_value=False), \
+                mock.patch.object(wb_update_request.wb_update_portable,
+                                  "available", return_value=False):
+            payload = wb_update_request.status()
+        self.assertFalse(payload["install_enabled"])
+        self.assertEqual(payload["install_channel"], "none")
+        self.assertEqual(payload["installation"]["state"], "idle")
+
+    def test_bridge_status_carries_the_channel(self):
+        with tempfile.TemporaryDirectory(prefix="wb-update-channel-") as directory, \
+                mock.patch.object(wb_update_request, "REQUEST_DIR", directory), \
+                mock.patch.object(wb_update_request, "REQUEST_FILE",
+                                  os.path.join(directory, "request.json")), \
+                mock.patch.object(wb_update_request, "STATUS_FILE",
+                                  os.path.join(directory, "status.json")), \
+                mock.patch.object(wb_update_request, "_systemd_enabled", return_value=True):
+            payload = wb_update_request.status()
+        self.assertTrue(payload["install_enabled"])
+        self.assertEqual(payload["install_channel"], "systemd")
+        self.assertIn("installation", payload)
+
+
+class PanelInstallHintTests(unittest.TestCase):
+    """三份 dashboard 必须逐字一致，且提示按通道分支。"""
+
+    COPIES = (
+        "dashboard.html",
+        os.path.join("mobile", "android", "app", "src", "main", "assets",
+                     "core", "dashboard.html"),
+        os.path.join("mobile", "ios", "WorkBuddyHub", "Resources", "app",
+                     "dashboard.html"),
+    )
+
+    def _read(self, relative):
+        with open(os.path.join(ROOT, relative), "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_every_dashboard_copy_is_identical(self):
+        bodies = {self._read(path) for path in self.COPIES}
+        self.assertEqual(len(bodies), 1, "面板三份拷贝不一致")
+
+    def test_hint_explains_where_to_install(self):
+        body = self._read(self.COPIES[0])
+        self.assertIn("function updateInstallHint(data)", body)
+        # 通道分支：systemd / external 已装但读不到状态，其余给安装动作
+        self.assertIn("data.install_channel", body)
+        self.assertIn("systemctl status workbuddy2api-hub-updater.path", body)
+        self.assertIn("ops/aliyun/install-updater.sh", body)
+        self.assertIn("App 右上角菜单的「自动更新」", body)
+        # 按钮下方那行必须走通道提示，而不是只把 tooltip 复制一遍
+        self.assertIn("(updateInstallHint(data) || install.title)", body)
+        # 读不到 root 状态文件 ≠ 没装服务
+        self.assertIn("unavailable: '更新服务状态不可用'", body)
+
+    def test_hint_strings_are_translated(self):
+        body = self._read(self.COPIES[0])
+        # 英文界面下露中文的典型漏法：动态文案没进字典
+        self.assertIn("便携包：解压运行即自带更新能力。': 'Installing from the panel", body)
+        self.assertIn("'本部署没有面板内安装能力': 'This deployment cannot install from the panel'",
+                      body)
+        self.assertIn("'更新服务状态不可用': 'Updater status is unavailable'", body)
+
+
 if __name__ == "__main__":
     unittest.main()
