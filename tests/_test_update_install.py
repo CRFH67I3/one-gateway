@@ -241,8 +241,12 @@ class PanelInstallHintTests(unittest.TestCase):
             return fh.read()
 
     def test_every_dashboard_copy_is_identical(self):
-        bodies = {self._read(path) for path in self.COPIES}
-        self.assertEqual(len(bodies), 1, "面板三份拷贝不一致")
+        # 移动端那两份是构建时复制出来的（.gitignore 里），CI 的干净检出里没有；
+        # 有就一起比，没有就只校验源码那一份，不能因此把整套测试跑红。
+        present = [p for p in self.COPIES if os.path.exists(os.path.join(ROOT, p))]
+        self.assertIn(self.COPIES[0], present)
+        bodies = {self._read(path) for path in present}
+        self.assertEqual(len(bodies), 1, "面板拷贝不一致: %s" % present)
 
     def test_hint_explains_where_to_install(self):
         body = self._read(self.COPIES[0])
