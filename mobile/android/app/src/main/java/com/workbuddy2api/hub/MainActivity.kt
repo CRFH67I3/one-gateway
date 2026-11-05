@@ -1,15 +1,12 @@
 package com.workbuddy2api.hub
 
 import android.app.Activity
-import android.app.AlarmManager
 import android.app.AlertDialog
-import android.app.PendingIntent
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -129,10 +126,7 @@ class MainActivity : Activity() {
         findViewById<ImageButton>(R.id.menuButton).setOnClickListener { showMenu(it) }
 
         // 只对「已经导入过项目」的机器自动启动：首次安装应当先看到导入引导。
-        // 重启进程安装新版本时会带上 EXTRA_AUTO_START——那时候必须起来，否则
-        // 用户刚更新完（或刚导入覆盖旧版本）会看到一个「已停止」的空壳。
-        val forceStart = intent?.getBooleanExtra(EXTRA_AUTO_START, false) == true
-        if ((Prefs.autoStart(this) || forceStart) && GatewayBridge.projectRoot(this) != null) {
+        if (Prefs.autoStart(this) && GatewayBridge.projectRoot(this) != null) {
             GatewayService.send(this, GatewayService.ACTION_START)
         }
     }
@@ -403,17 +397,20 @@ class MainActivity : Activity() {
     }
 
     /**
-     * 把已经落到缓存的 ZIP 装上：解压 → 提示 → 重启。
+     * 把已经落到缓存的 ZIP 装上：解压 → 提示 → 重新起服务。
      *
-     * 手动导入、自动导入、菜单更新三条路径共用，避免它们在「成功后是否重启」
-     * 「失败文案」这类细节上跑偏。调用方必须在后台线程（内部会做解压重活）。
+     * 手动导入、自动导入、菜单更新三条路径共用，避免它们在「失败文案」这类
+     * 细节上跑偏。调用方必须在后台线程（内部会做解压重活）。
+     *
+     * 全程不重启进程：Python 侧 install() 已经会把旧项目 import 进来的模块
+     * 从 sys.modules 里摘掉，所以这里直接重新 start() 加载的就是新代码。
+     * （重启进程在 Android 10+ 上等于把用户丢在桌面——进程死后系统会拒绝
+     * 后台启动 Activity，闹钟怎么排都没用，真机验证过。）
      *
      * @param update 已经装过项目时的覆盖升级，决定成功/失败用「更新」口径的文案。
      */
     private fun applyProject(zip: File, update: Boolean = false) {
         val result = GatewayBridge.installProject(this, zip)
-        // 解释器调用留在后台线程：进 UI 线程前就把「要不要重启」问清楚。
-        val needsRestart = result.optBoolean("ok") && GatewayBridge.gatewayLoadedInProcess()
         ui.post {
             if (!result.optBoolean("ok")) {
                 val message = getString(
@@ -435,16 +432,11 @@ class MainActivity : Activity() {
                 Toast.LENGTH_LONG,
             ).show()
             finishAutoImport(null)
-            if (needsRestart) {
-                // 覆盖升级：旧网关模块和它的线程还留在解释器里，只能重启进程。
-                restartApp()
-            } else {
-                // 首次安装：进程里没有旧模块，不重启——重启会把用户甩回桌面，
-                // 看起来像导入完就闪退了。直接起服务，覆盖层会自己切到面板。
-                loadedUrl = null
-                GatewayService.send(this, GatewayService.ACTION_START)
-                ui.postDelayed(poller, 600)
-            }
+            // 置空 loadedUrl：面板要按新版本重新载一次，否则 WebView 里还是
+            // 旧项目 render 出来的那一页。
+            loadedUrl = null
+            GatewayService.send(this, GatewayService.ACTION_START)
+            ui.postDelayed(poller, 600)
         }
     }
 
@@ -452,62 +444,6 @@ class MainActivity : Activity() {
         bytes >= 1 shl 20 -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1048576.0)
         bytes >= 1 shl 10 -> String.format(java.util.Locale.US, "%d KB", bytes / 1024)
         else -> "$bytes B"
-    }
-
-    /**
-     * 让新导入的项目在干净的进程里生效（旧模块不能可靠地热替换）。
-     *
-     * 进程一死，就没有任何线程能把界面再拉到前台了，所以「回来」这件事必须交给
-     * 系统：用一个 PendingIntent 闹钟在 600ms 后重新拉起 MainActivity。600ms 是
-     * 给旧进程退出留的时间，太短会在新进程起来前又被系统判定为上一个实例。
-     * 拉起时带 EXTRA_AUTO_START：刚装完新版本，无论「打开时自动启动」开着没有，
-     * 都该把网关跑起来。
-     */
-    private fun restartApp() {
-        val intent = Intent(this, MainActivity::class.java).addFlags(
-            Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-        ).putExtra(EXTRA_AUTO_START, true)
-        val pending = PendingIntent.getActivity(
-            this,
-            RESTART_REQUEST,
-            intent,
-            PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val alarms = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        scheduleRelaunch(alarms, pending, System.currentTimeMillis() + 600)
-        finishAffinity()
-        ui.postDelayed({
-            android.os.Process.killProcess(android.os.Process.myPid())
-        }, 250)
-    }
-
-    /**
-     * 排一条「把界面拉回来」的闹钟。
-     *
-     * 必须精确、且不受应用待机推迟。真机上普通 `set()` 会出事：进程刚死，系统就
-     * 把这个 uid 标成 idle，那条 600ms 的闹钟被攒着发——实测 5 分钟都没响，用户
-     * 更新完就被丢在桌面上（看起来又像「更新完闪退」）。
-     *
-     * 顺序是：能排精确闹钟就排精确闹钟；Android 14 起 `SCHEDULE_EXACT_ALARM`
-     * 默认不授予，拿不到就退成 `setAlarmClock`——它不需要权限、也不会被待机推迟，
-     * 代价是通知栏会闪一下闹钟图标，600ms 后就没了。两者都做不到时才回到 `set()`。
-     */
-    private fun scheduleRelaunch(alarms: AlarmManager, pending: PendingIntent, at: Long) {
-        val exactAllowed = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-            alarms.canScheduleExactAlarms()
-        if (exactAllowed) {
-            try {
-                alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending)
-                return
-            } catch (t: SecurityException) {
-                // 权限在运行期被撤销：继续往下退。
-            }
-        }
-        try {
-            alarms.setAlarmClock(AlarmManager.AlarmClockInfo(at, pending), pending)
-        } catch (t: Throwable) {
-            alarms.set(AlarmManager.RTC, at, pending)
-        }
     }
 
     override fun onBackPressed() {
@@ -834,9 +770,6 @@ class MainActivity : Activity() {
     companion object {
         private const val REQUEST_IMPORT = 1001
         private const val REQUEST_PROJECT = 1002
-        private const val RESTART_REQUEST = 2001
-        /** 重启进程拉起界面时带上：刚装完新版本，必须把网关跑起来。 */
-        private const val EXTRA_AUTO_START = "com.workbuddy2api.hub.AUTO_START"
         private const val MENU_RESTART = 2
         private const val MENU_SETTINGS = 3
         private const val MENU_PROJECT = 4

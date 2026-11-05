@@ -110,33 +110,27 @@ class ShellWiringTests(unittest.TestCase):
         # 进度回调不能逐块刷 UI。
         self.assertIn("lastPct", self.bridge)
 
-    def test_first_install_does_not_restart_process(self):
-        """首装导入完不重启进程：重启会把用户甩回桌面，像「导入完就闪退」。"""
-        self.assertIn("gatewayLoadedInProcess()", self.main)
-        self.assertIn("needsRestart", self.main)
-        # restartApp 只能在「进程里已有旧网关」那条分支里被调用。
-        lines = self.main.splitlines()
-        call_index = next(i for i, line in enumerate(lines) if line.strip() == "restartApp()")
-        guard = next(i for i, line in enumerate(lines) if "if (needsRestart)" in line)
-        self.assertLess(guard, call_index)
-        # 首次安装分支要直接把服务拉起来，覆盖层才会切到面板。
+    def test_install_never_restarts_process(self):
+        """装完新版本不能重启进程：进程一死，Android 会拒绝后台拉起界面。"""
+        self.assertNotIn("killProcess", self.main)
+        self.assertNotIn("restartApp", self.main)
+        # 装完直接起服务，覆盖层才会自己切到面板
         self.assertIn("GatewayService.ACTION_START", self.main)
+        # 面板要按新版本重新载一次
+        apply_body = self.main[self.main.index("private fun applyProject("):]
+        apply_body = apply_body[: apply_body.index("\n    }\n")]
+        self.assertIn("loadedUrl = null", apply_body)
 
-    def test_restart_uses_alarm_to_come_back(self):
-        """进程自杀后只有系统持有的 PendingIntent 能把界面拉回来。"""
-        body = self.main[self.main.index("private fun restartApp()"):]
-        body = body[: body.index("\n    }\n")]
-        self.assertIn("PendingIntent.getActivity", body)
-        self.assertIn("AlarmManager", body)
-
-    def test_relaunch_alarm_is_exact(self):
-        """重启进程后用普通 set() 排的闹钟会被待机推迟，界面回不来（真机踩过）。"""
-        body = self.main[self.main.index("private fun scheduleRelaunch("):]
-        body = body[: body.index("\n    }\n")]
-        self.assertIn("setExactAndAllowWhileIdle", body)
-        # Android 14 默认不授予精确闹钟权限，必须有不需要权限的退路
-        self.assertIn("setAlarmClock", body)
-        self.assertIn("canScheduleExactAlarms", body)
+    def test_python_purges_old_modules_on_install(self):
+        """换代码靠 Python 侧摘 sys.modules，不是靠重启进程。"""
+        runtime = read(os.path.join(PY_RUNTIME_DIR, "wb_hub_env.py"))
+        self.assertIn("def _purge_gateway_modules(", runtime)
+        self.assertIn("sys.modules.pop(", runtime)
+        # 旧项目目录也不能留在 sys.path 里，否则新版本删掉的模块会被「复活」
+        self.assertIn("def _prune_sys_path(", runtime)
+        install_body = runtime[runtime.index("def install("):]
+        install_body = install_body[: install_body.index("\ndef ")]
+        self.assertIn("_purge_gateway_modules(projects_dir)", install_body)
 
     def test_status_comes_from_our_own_runtime(self):
         """端口被别人占着时不能假「运行中」——状态必须以运行环境为准。"""
@@ -329,6 +323,95 @@ class InstallContractTests(unittest.TestCase):
         other = wb_hub_env._listen_error(OSError(errno.EACCES, "Permission denied"), 80)
         self.assertIn("80", other)
         self.assertNotIn("端口设置", other)
+
+
+class ModulePurgeTests(unittest.TestCase):
+    """更新网关 = 原地换代码：install() 必须把旧项目的模块真的摘掉。
+
+    这条是「不重启进程」方案的地基。真机上进程一死，Android 就拒绝后台拉起界面
+    （日志里的 `Abort background activity starts`），所以只能靠摘 sys.modules；
+    摘不干净的话，用户点完更新会发现版本号没变。
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="wb-purge-")
+        self.projects = os.path.join(self.tmp, "projects")
+        self.zip = os.path.join(self.tmp, "project.zip")
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.addCleanup(self._cleanup)
+
+    def _cleanup(self):
+        sys.modules.pop("wb_proxy", None)
+        projects = os.path.abspath(self.projects)
+        sys.path[:] = [p for p in sys.path if not os.path.abspath(p).startswith(projects)]
+
+    def _install_version(self, version):
+        make_archive(self.zip, {"wb_proxy.py": 'VERSION = "%s"\n' % version})
+        return wb_hub_env.install(self.zip, self.projects)
+
+    def test_update_reloads_module_from_new_project(self):
+        first = self._install_version("1.0.0")
+        self.assertTrue(first["ok"], first)
+        sys.path.insert(0, first["root"])
+        import wb_proxy
+        self.assertEqual(wb_proxy.VERSION, "1.0.0")
+
+        second = self._install_version("2.0.0")
+        self.assertTrue(second["ok"], second)
+        # 旧项目 import 进来的模块必须被摘掉
+        self.assertIn("wb_proxy", second["purged"])
+        self.assertNotIn("wb_proxy", sys.modules)
+
+        sys.path.insert(0, second["root"])
+        import wb_proxy as reloaded
+        self.assertEqual(reloaded.VERSION, "2.0.0")
+
+    def test_prune_drops_stale_project_paths(self):
+        first = self._install_version("1.0.0")
+        second = self._install_version("2.0.0")
+        sys.path.insert(0, first["root"])
+        sys.path.insert(1, second["root"])
+        wb_hub_env._prune_sys_path(second["root"], self.projects)
+        entries = [os.path.abspath(p) for p in sys.path]
+        self.assertNotIn(os.path.abspath(first["root"]), entries)
+        self.assertIn(os.path.abspath(second["root"]), entries)
+
+    def test_runtime_module_survives(self):
+        """wb_hub_env 自己不在 projects 目录里，绝不能被顺手摘掉。"""
+        result = self._install_version("1.0.0")
+        self.assertTrue(result["ok"], result)
+        self.assertNotIn("wb_hub_env", result["purged"])
+
+    def test_stdio_is_not_double_wrapped_after_update(self):
+        """更新会再 configure 一次：日志只能写一遍，不能在旧 Tee 外面再套一层。"""
+        import io
+
+        tmp = tempfile.mkdtemp(prefix="wb-stdio-")
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        saved = (sys.stdout, sys.stderr)
+        self.addCleanup(lambda: (
+            setattr(sys, "stdout", saved[0]),
+            setattr(sys, "stderr", saved[1]),
+            setattr(wb_hub_env, "_STDIO_ORIGINAL", None),
+        ))
+        log = os.path.join(tmp, "gateway.log")
+        sys.stdout = io.StringIO()
+        wb_hub_env._STDIO_ORIGINAL = None
+        wb_hub_env._bind_stdio(log)
+        wb_hub_env._bind_stdio(log)
+        print("after-update-marker")
+        written = [line for line in open(log, encoding="utf-8").read().splitlines()
+                   if line.strip() == "after-update-marker"]
+        self.assertEqual(len(written), 1, "同一行被写了 %d 遍：Tee 被嵌套了" % len(written))
+
+    def test_start_reconfigures_when_project_changes(self):
+        """只摘模块不够：sys.path 里还挂着旧项目，import 会又拿到旧代码。"""
+        runtime = read(os.path.join(PY_RUNTIME_DIR, "wb_hub_env.py"))
+        body = runtime[runtime.index("def start(project, data, port, lan):"):]
+        body = body[: body.index("\ndef ")]
+        self.assertRegex(body, r"switched = _CORE is not None")
+        self.assertIn("_configure(project, data)", body)
+        self.assertIn("_BOOTED = False", body)
 
 
 @unittest.skipUnless(os.environ.get("WB_LIVE_IMPORT") == "1",

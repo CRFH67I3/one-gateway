@@ -26,14 +26,14 @@
     <string name="auto_import_progress">正在下载网关项目…%1$d%%（%2$s）</string>
     <string name="auto_import_progress_unknown">正在下载网关项目…（已下载 %1$s）</string>
     <string name="auto_import_installing">下载完成，正在解压…</string>
-    <string name="auto_import_ok">已导入版本 %1$s，正在重启…</string>
+    <string name="auto_import_ok">已导入版本 %1$s，正在重新加载网关…</string>
     <string name="auto_import_failed">自动导入失败：%1$s</string>
 
     <!-- 更新（菜单里的「更新网关项目」：同一套下载流程，只是文案不同） -->
     <string name="update_running">更新中…</string>
     <string name="update_downloading">正在下载最新版本…%1$d%%（%2$s）</string>
     <string name="update_installing">下载完成，正在更新…</string>
-    <string name="update_ok">已更新到版本 %1$s（%2$d 个文件），正在重启…</string>
+    <string name="update_ok">已更新到版本 %1$s（%2$d 个文件），正在重新加载网关…</string>
     <string name="update_failed">更新失败：%1$s</string>
 
     <!-- 通知 -->
@@ -62,7 +62,7 @@
 
     <!-- 网关项目（容器模式） -->
     <string name="project_installing">正在解压项目…</string>
-    <string name="project_import_ok">已导入版本 %1$s（%2$d 个文件），正在重启…</string>
+    <string name="project_import_ok">已导入版本 %1$s（%2$d 个文件），正在启动网关…</string>
     <string name="project_import_failed">导入失败：%1$s</string>
     <string name="project_none_hint">还没有导入网关项目。\n\n到 GitHub 仓库点 Code → Download ZIP，再在菜单里选「导入网关项目压缩包」选中它即可；也可以直接用「更新网关项目」联网下载最新版。</string>
     <string name="project_import_action">去导入</string>
