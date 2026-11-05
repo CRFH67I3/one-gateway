@@ -223,6 +223,23 @@ github.com），下载完走与手动导入完全相同的解压/切指针/重�
 自动化测试：`python tests/_test_android_auto_import.py`（外壳接线 + 解压契约，离线秒级）；
 加 `WB_LIVE_IMPORT=1` 会真的从镜像下一次并解压，验证地址当前可用、包结构没变。
 
+真机端到端（点按真实界面，不 mock）：
+
+```bash
+python mobile/android/tools/e2e_auto_import.py        # 需要 adb + 已装本包
+python mobile/android/tools/e2e_auto_import.py --keep # 结束后不停 App，方便接着看
+```
+
+它做四件事：确认首装界面两个按钮都在、且自动导入在导入按钮下方；点自动导入并等
+覆盖层消失；从 `/proc/net/tcp` 的 uid 确认「监听该端口的确实是本 App」（避免把别人
+的面板测成自己的）；检查状态栏显示运行中、`/health` 返回 200、面板有内容。
+
+**端口占用是这台手机上的常见情况**：如果 Termux 里也跑着一份 `start-wb-proxy.sh`，
+它就占着 8788。此时本 App 的网关会 bind 失败——状态栏直接显示
+「启动失败：端口 8788 已被占用…到菜单『端口设置』换一个端口」，不会假装运行中、
+更不会把 Termux 那份面板当成自己的。端到端脚本遇到这种情况会自动走 App 的端口
+设置换到 18788 再继续。
+
 > iOS 目前仍是「打包核心」形态；两端后续可以统一成容器模式，但 iOS 侧要改的是
 > PyBridge 的 `PYTHONPATH` 与资源布局，改动面比 Android 大，暂未一并切换。
 
