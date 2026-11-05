@@ -27,7 +27,7 @@ mobile/
 │   ├── app/src/main/
 │   │   ├── java/com/workbuddy2api/hub/
 │   │   │   ├── HubApp.kt            # Application：初始化 CPython
-│   │   │   ├── GatewayBridge.kt     # Kotlin ⇄ Python 唯一通道 + 项目解压与指针
+│   │   │   ├── GatewayBridge.kt     # Kotlin ⇄ Python 通道、项目解压与指针、自动下载
 │   │   │   ├── GatewayService.kt    # 前台服务 + 常驻通知
 │   │   │   ├── MainActivity.kt      # WebView 加载面板 + 原生菜单
 │   │   │   └── Prefs.kt             # 端口 / 局域网 / 自启 / 当前项目
@@ -185,7 +185,20 @@ gradle :app:assembleDebug        # 或 :app:assembleRelease
 
 ### Android 的容器模式
 
-APK 是**运行环境**，不是网关本身：
+APK 是**运行环境**，不是网关本身。首次安装后两条路都能把网关装进来：
+
+**一、自动导入（推荐）**
+
+打开 App，点首装界面上的「**自动导入最新版（联网下载）**」。App 会自己去
+`https://v4.gh-proxy.org/https://github.com/ardeyouxipianyi/workbuddy2api-hub/archive/refs/heads/main.zip`
+下载仓库 `main` 的最新快照（首选 gh-proxy 镜像，失败再退第二个镜像、最后直连
+github.com），下载完走与手动导入完全相同的解压/切指针/重启流程。按钮下方会实时显示
+「正在下载…42%（1.1 MB）」这类进度，失败时给出每个地址各自的失败原因。
+
+> 想换成自己的仓库或分支：改 `GatewayBridge.kt` 里的 `REPO` / `BRANCH` 两个常量即可，
+> `PROJECT_ZIP_URLS` 会自动跟着变。
+
+**二、手动导入**
 
 1. 在 GitHub 仓库点 **Code → Download ZIP**，把压缩包发到手机（微信/网盘/数据线均可）；
 2. 打开 App → 点「导入网关项目压缩包」（或菜单「导入/更新网关项目」）→ 在系统文件
@@ -202,8 +215,13 @@ APK 是**运行环境**，不是网关本身：
 - **导入后重启进程**：Python 模块一旦 `import` 就留在 `sys.modules`，热替换成新版本并不可靠。
 - **ZIP 结构不挑**：GitHub 的 `仓库名-分支/` 外层会自动识别；也接受直接把仓库根目录
   压成的包。没有 `wb_proxy.py` 的包会明确报错，不会留下半个项目。
+- **下载先验 ZIP 魔数**：镜像返回 200 不代表拿到的是包（限流页、警告页都是 200），
+  所以看前两字节是不是 `PK`，不是就换下一个地址。
 - **不校验签名/来源**：这里导入的是你自己下载的仓库代码，App 只做路径安全校验（拒绝
   `../` 与绝对路径，跳过 `__MACOSX`）。
+
+自动化测试：`python tests/_test_android_auto_import.py`（外壳接线 + 解压契约，离线秒级）；
+加 `WB_LIVE_IMPORT=1` 会真的从镜像下一次并解压，验证地址当前可用、包结构没变。
 
 > iOS 目前仍是「打包核心」形态；两端后续可以统一成容器模式，但 iOS 侧要改的是
 > PyBridge 的 `PYTHONPATH` 与资源布局，改动面比 Android 大，暂未一并切换。

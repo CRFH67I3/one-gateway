@@ -55,10 +55,20 @@ class MainActivity : Activity() {
     private lateinit var overlay: LinearLayout
     private lateinit var overlayText: TextView
     private lateinit var overlayAction: Button
+    private lateinit var overlayAuto: Button
 
     private val io = Executors.newSingleThreadExecutor()
     private val ui = Handler(Looper.getMainLooper())
     private var loadedUrl: String? = null
+
+    /**
+     * 自动导入是否正在进行。
+     *
+     * 它挡两件事：一是重复点击（下载 2.6MB 期间用户很容易连点），二是状态轮询
+     * 把覆盖层文案改回「尚未导入」——轮询每 2.5s 跑一次，不挡住就会把进度条
+     * 刷成静态提示，用户以为卡死了。
+     */
+    private var autoImporting = false
 
     private data class Health(val reachable: Boolean, val accounts: Int, val usable: Int)
 
@@ -83,6 +93,7 @@ class MainActivity : Activity() {
         overlay = findViewById(R.id.overlay)
         overlayText = findViewById(R.id.overlayText)
         overlayAction = findViewById(R.id.overlayAction)
+        overlayAuto = findViewById(R.id.overlayAutoImport)
 
         configureWebView()
         swipe.setOnRefreshListener { webView.reload() }
@@ -97,6 +108,7 @@ class MainActivity : Activity() {
                 ui.postDelayed(poller, 600)
             }
         }
+        overlayAuto.setOnClickListener { startAutoImport() }
         findViewById<ImageButton>(R.id.menuButton).setOnClickListener { showMenu(it) }
 
         // 只对「已经导入过项目」的机器自动启动：首次安装应当先看到导入引导。
@@ -266,26 +278,100 @@ class MainActivity : Activity() {
                 }
                 return@execute
             }
-            val result = GatewayBridge.installProject(this, zip)
-            ui.post {
-                if (!result.optBoolean("ok")) {
-                    Toast.makeText(
-                        this,
-                        getString(R.string.project_import_failed, result.optString("error")),
-                        Toast.LENGTH_LONG,
-                    ).show()
-                    return@post
-                }
-                val version = result.optString("version").ifBlank { "未知版本" }
-                val files = result.optInt("files_extracted", 0)
-                Toast.makeText(
-                    this,
-                    getString(R.string.project_import_ok, version, files),
-                    Toast.LENGTH_LONG,
-                ).show()
-                restartApp()
-            }
+            applyProject(zip)
         }
+    }
+
+    /**
+     * 首次安装界面上的「自动导入」：直接下载仓库 main 的最新 ZIP 再导入。
+     *
+     * 和手动导入相比只多了「下载」这一步——解压、切指针、重启进程全部复用
+     * [applyProject]，两条路径的产物完全一致，不需要在手机上再验证一遍逻辑。
+     * 下载在同一个单线程 executor 上排队，跟解压天然互斥。
+     */
+    private fun startAutoImport() {
+        if (autoImporting) return
+        autoImporting = true
+        overlay.visibility = View.VISIBLE
+        overlayAction.isEnabled = false
+        overlayAuto.isEnabled = false
+        overlayAuto.text = getString(R.string.auto_import_running)
+        overlayText.text = getString(R.string.auto_import_connecting, 1, GatewayBridge.PROJECT_ZIP_URLS.size)
+        io.execute {
+            GatewayService.send(this, GatewayService.ACTION_STOP)
+            Thread.sleep(300)
+            val download = GatewayBridge.downloadProjectZip(
+                this,
+                onAttempt = { index, count ->
+                    ui.post {
+                        if (autoImporting) {
+                            overlayText.text = getString(R.string.auto_import_connecting, index, count)
+                        }
+                    }
+                },
+                onProgress = { pct, done, total ->
+                    ui.post {
+                        if (!autoImporting) return@post
+                        overlayText.text = if (pct >= 0 && total > 0) {
+                            getString(R.string.auto_import_progress, pct, formatBytes(done))
+                        } else {
+                            getString(R.string.auto_import_progress_unknown, formatBytes(done))
+                        }
+                    }
+                },
+            )
+            val zip = download.file
+            if (zip == null) {
+                ui.post { finishAutoImport(getString(R.string.auto_import_failed, download.error)) }
+                return@execute
+            }
+            ui.post { overlayText.text = getString(R.string.auto_import_installing) }
+            applyProject(zip)
+        }
+    }
+
+    /** 自动导入失败后的收尾：恢复按钮与引导文案，让用户能直接再试一次。 */
+    private fun finishAutoImport(message: String?) {
+        autoImporting = false
+        overlayAction.isEnabled = true
+        overlayAuto.isEnabled = true
+        overlayAuto.text = getString(R.string.overlay_auto_import)
+        if (message != null) {
+            if (GatewayBridge.projectRoot(this) == null) {
+                overlayText.text = getString(R.string.overlay_no_project)
+            }
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /**
+     * 把已经落到缓存的 ZIP 装上：解压 → 提示 → 重启。
+     *
+     * 手动导入与自动导入共用，避免两条路径在「成功后是否重启」「失败文案」
+     * 这类细节上跑偏。调用方必须在后台线程（内部会做解压重活）。
+     */
+    private fun applyProject(zip: File) {
+        val result = GatewayBridge.installProject(this, zip)
+        ui.post {
+            if (!result.optBoolean("ok")) {
+                finishAutoImport(getString(R.string.project_import_failed, result.optString("error")))
+                return@post
+            }
+            val version = result.optString("version").ifBlank { "未知版本" }
+            val files = result.optInt("files_extracted", 0)
+            Toast.makeText(
+                this,
+                getString(R.string.project_import_ok, version, files),
+                Toast.LENGTH_LONG,
+            ).show()
+            restartApp()
+        }
+    }
+
+    private fun formatBytes(bytes: Long): String = when {
+        bytes >= 1 shl 20 -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1048576.0)
+        bytes >= 1 shl 10 -> String.format(java.util.Locale.US, "%d KB", bytes / 1024)
+        else -> "$bytes B"
     }
 
     /** 让新导入的项目在干净的进程里生效（旧模块不能可靠地热替换）。 */
@@ -558,11 +644,18 @@ class MainActivity : Activity() {
             statusDot.setBackgroundResource(R.drawable.dot_idle)
             statusText.text = getString(R.string.status_no_project)
             overlay.visibility = View.VISIBLE
-            overlayText.text = getString(R.string.overlay_no_project)
-            overlayAction.text = getString(R.string.overlay_import_project)
+            overlayAuto.visibility = View.VISIBLE
+            // 自动导入进行中时，覆盖层文案归下载进度管，这里不要抢。
+            if (!autoImporting) {
+                overlayText.text = getString(R.string.overlay_no_project)
+                overlayAction.text = getString(R.string.overlay_import_project)
+                overlayAction.isEnabled = true
+            }
             return
         }
         overlayAction.text = getString(R.string.overlay_action)
+        // 项目已导入：自动导入只服务首次安装，装好之后就不再占位置。
+        overlayAuto.visibility = View.GONE
 
         if (health.reachable) {
             statusDot.setBackgroundResource(R.drawable.dot_running)

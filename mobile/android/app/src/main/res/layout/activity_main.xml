@@ -82,6 +82,18 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="20dp"
                 android:text="@string/overlay_action" />
+
+            <!-- 首次安装最省事的入口：不用去 GitHub 找 Download ZIP，点一下
+                 直接下最新 main 并导入。项目已经导入后由代码隐藏。 -->
+            <Button
+                android:id="@+id/overlayAutoImport"
+                style="?android:attr/borderlessButtonStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/overlay_auto_import"
+                android:textColor="@color/text_secondary"
+                android:textSize="13sp" />
         </LinearLayout>
     </FrameLayout>
 
