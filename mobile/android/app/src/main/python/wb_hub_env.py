@@ -455,6 +455,19 @@ def describe(project):
         return _fail(exc)
 
 
+def loaded():
+    """进程里是否已经 import 过网关本体。
+
+    外壳用这个决定导入后要不要重启进程：
+
+    * 首次安装 —— 还没启动过网关，`wb_proxy` 不在 sys.modules，导入完直接起
+      服务即可，不重启（重启会把用户甩回桌面，看起来像闪退）；
+    * 覆盖升级 —— 旧版本已经 import，模块级状态（账号池、调度线程、环境变量）
+      都留在内存里，热替换不可靠，只能重启进程。
+    """
+    return _dump({"ok": True, "loaded": "wb_proxy" in sys.modules})
+
+
 def _dump(payload):
     return json.dumps(payload, ensure_ascii=False)
 

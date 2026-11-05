@@ -1,7 +1,9 @@
 package com.workbuddy2api.hub
 
 import android.app.Activity
+import android.app.AlarmManager
 import android.app.AlertDialog
+import android.app.PendingIntent
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -352,6 +354,8 @@ class MainActivity : Activity() {
      */
     private fun applyProject(zip: File) {
         val result = GatewayBridge.installProject(this, zip)
+        // 解释器调用留在后台线程：进 UI 线程前就把「要不要重启」问清楚。
+        val needsRestart = result.optBoolean("ok") && GatewayBridge.gatewayLoadedInProcess()
         ui.post {
             if (!result.optBoolean("ok")) {
                 finishAutoImport(getString(R.string.project_import_failed, result.optString("error")))
@@ -364,7 +368,17 @@ class MainActivity : Activity() {
                 getString(R.string.project_import_ok, version, files),
                 Toast.LENGTH_LONG,
             ).show()
-            restartApp()
+            finishAutoImport(null)
+            if (needsRestart) {
+                // 覆盖升级：旧网关模块和它的线程还留在解释器里，只能重启进程。
+                restartApp()
+            } else {
+                // 首次安装：进程里没有旧模块，不重启——重启会把用户甩回桌面，
+                // 看起来像导入完就闪退了。直接起服务，覆盖层会自己切到面板。
+                loadedUrl = null
+                GatewayService.send(this, GatewayService.ACTION_START)
+                ui.postDelayed(poller, 600)
+            }
         }
     }
 
@@ -374,16 +388,29 @@ class MainActivity : Activity() {
         else -> "$bytes B"
     }
 
-    /** 让新导入的项目在干净的进程里生效（旧模块不能可靠地热替换）。 */
+    /**
+     * 让新导入的项目在干净的进程里生效（旧模块不能可靠地热替换）。
+     *
+     * 进程一死，就没有任何线程能把界面再拉到前台了，所以「回来」这件事必须交给
+     * 系统：用一个 PendingIntent 闹钟在 600ms 后重新拉起 MainActivity。600ms 是
+     * 给旧进程退出留的时间，太短会在新进程起来前又被系统判定为上一个实例。
+     */
     private fun restartApp() {
         val intent = Intent(this, MainActivity::class.java).addFlags(
             Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         )
-        startActivity(intent)
+        val pending = PendingIntent.getActivity(
+            this,
+            RESTART_REQUEST,
+            intent,
+            PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val alarms = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        alarms.set(AlarmManager.RTC, System.currentTimeMillis() + 600, pending)
         finishAffinity()
         ui.postDelayed({
             android.os.Process.killProcess(android.os.Process.myPid())
-        }, 300)
+        }, 250)
     }
 
     override fun onBackPressed() {
@@ -683,6 +710,7 @@ class MainActivity : Activity() {
     companion object {
         private const val REQUEST_IMPORT = 1001
         private const val REQUEST_PROJECT = 1002
+        private const val RESTART_REQUEST = 2001
         private const val MENU_RESTART = 2
         private const val MENU_SETTINGS = 3
         private const val MENU_PROJECT = 4

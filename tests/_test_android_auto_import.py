@@ -14,7 +14,7 @@ Run:
     python tests/_test_android_auto_import.py            # 离线三组（第 3 组跳过）
     WB_LIVE_IMPORT=1 python tests/_test_android_auto_import.py
 """
-import io
+import json
 import os
 import re
 import shutil
@@ -110,6 +110,25 @@ class ShellWiringTests(unittest.TestCase):
         # 进度回调不能逐块刷 UI。
         self.assertIn("lastPct", self.bridge)
 
+    def test_first_install_does_not_restart_process(self):
+        """首装导入完不重启进程：重启会把用户甩回桌面，像「导入完就闪退」。"""
+        self.assertIn("gatewayLoadedInProcess()", self.main)
+        self.assertIn("needsRestart", self.main)
+        # restartApp 只能在「进程里已有旧网关」那条分支里被调用。
+        lines = self.main.splitlines()
+        call_index = next(i for i, line in enumerate(lines) if line.strip() == "restartApp()")
+        guard = next(i for i, line in enumerate(lines) if "if (needsRestart)" in line)
+        self.assertLess(guard, call_index)
+        # 首次安装分支要直接把服务拉起来，覆盖层才会切到面板。
+        self.assertIn("GatewayService.ACTION_START", self.main)
+
+    def test_restart_uses_alarm_to_come_back(self):
+        """进程自杀后只有系统持有的 PendingIntent 能把界面拉回来。"""
+        body = self.main[self.main.index("private fun restartApp()"):]
+        body = body[: body.index("\n    }\n")]
+        self.assertIn("PendingIntent.getActivity", body)
+        self.assertIn("AlarmManager", body)
+
 
 class InstallContractTests(unittest.TestCase):
     """`wb_hub_env.install()` 面对真包结构时的行为。"""
@@ -182,6 +201,13 @@ class InstallContractTests(unittest.TestCase):
         self.assertNotEqual(first["dest"], second["dest"])
         # 旧版本目录还在：升级失败也能回退，这是 install 的设计要求。
         self.assertTrue(os.path.isdir(first["dest"]))
+
+    def test_loaded_flags_whether_gateway_is_imported(self):
+        """首装时 `wb_proxy` 不在 sys.modules → 外壳据此决定不重启进程。"""
+        self.assertNotIn("wb_proxy", sys.modules)
+        payload = json.loads(wb_hub_env.loaded())
+        self.assertTrue(payload["ok"])
+        self.assertFalse(payload["loaded"])
 
 
 @unittest.skipUnless(os.environ.get("WB_LIVE_IMPORT") == "1",
