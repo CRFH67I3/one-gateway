@@ -81,14 +81,6 @@ object GatewayBridge {
         return invoke("describe", root.absolutePath)
     }
 
-    /**
-     * 当前进程里是否已经 import 过网关本体。
-     *
-     * 导入完要用它决定「要不要重启进程」：首次安装是 false，原地起服务就行；
-     * 升级是 true（旧模块和它的线程、环境变量都在内存里），只能重启。
-     */
-    fun gatewayLoadedInProcess(): Boolean = invoke("loaded").optBoolean("loaded", false)
-
     fun start(context: Context, port: Int, lan: Boolean): JSONObject {
         val root = projectRoot(context) ?: return notInstalled()
         return invoke("start", root.absolutePath, dataDir(context).absolutePath, port, lan)

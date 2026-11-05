@@ -15,6 +15,7 @@ bootstrap、serve_forever）仍与 PC 版 `wb_proxy.main()` 逐步对齐，业�
 """
 
 import json
+import importlib
 import os
 import re
 import shutil
@@ -40,12 +41,66 @@ _HOME = None
 _CORE = None
 _LOGS = None
 _LOG_FH = None
+_STDIO_ORIGINAL = None
 _WB = None
+_PROJECTS_DIR = None
 
 
 # --------------------------------------------------------------------------
 # 项目导入
 # --------------------------------------------------------------------------
+def _purge_gateway_modules(projects_dir):
+    """把上一份项目 import 进来的模块从 `sys.modules` 里摘掉，返回摘掉的模块名。
+
+    更新网关必须换掉内存里的旧代码，而 Android 上「重启进程」这条路走不通：
+    进程自己死掉之后，系统会拦掉「从后台启动 Activity」（真机日志：
+    `Abort background activity starts from 10237`），普通闹钟、精确闹钟、
+    `setAlarmClock` 都一样——用户只会看到 App 在更新后凭空消失。所以只能在
+    原地换代码：停掉 server、把老项目目录里的模块摘掉、把老目录从 sys.path 去掉，
+    下一次 start() 就会真正 import 新版本。
+
+    这么做是安全的，因为网关是纯标准库实现，被摘掉的模块没有「必须活着」的
+    全局状态：server 已 shutdown、线程已 join、账号数据都在磁盘上。
+    """
+    global _WB
+    _WB = None
+    root = os.path.abspath(projects_dir).rstrip(os.sep) + os.sep
+    removed = []
+    for name, module in list(sys.modules.items()):
+        path = getattr(module, "__file__", None)
+        if not path:
+            continue
+        try:
+            full = os.path.abspath(path)
+        except Exception:
+            continue
+        if full.startswith(root):
+            sys.modules.pop(name, None)
+            removed.append(name)
+    if removed:
+        # 目录 mtime 变了（新解出来的一份），import 缓存也要跟着失效。
+        importlib.invalidate_caches()
+    return removed
+
+
+def _prune_sys_path(core, projects_dir):
+    """sys.path 里只保留当前项目，别让旧项目把新版本删掉的模块「复活」。"""
+    if not projects_dir:
+        return
+    root = os.path.abspath(projects_dir).rstrip(os.sep) + os.sep
+    kept = []
+    for entry in sys.path:
+        try:
+            full = os.path.abspath(entry)
+        except Exception:
+            kept.append(entry)
+            continue
+        if full.startswith(root) and os.path.abspath(core) != full:
+            continue
+        kept.append(entry)
+    sys.path[:] = kept
+
+
 def _find_root(base):
     """在解压目录里找项目根。
 
@@ -167,8 +222,13 @@ def install(zip_path, projects_dir):
     if not info.get("ok"):
         shutil.rmtree(dest, ignore_errors=True)
         return info
+    # 解压成功之后、外壳切指针之前，把内存里的旧网关摘掉：否则下一次 start()
+    # 拿到的还是 sys.modules 里那份旧代码（导入新版本却不生效）。
+    global _PROJECTS_DIR
+    _PROJECTS_DIR = projects_dir
+    purged = _purge_gateway_modules(projects_dir)
     info.update({"dest": dest, "files_extracted": count, "bytes": total,
-                 "imported_at": time.time()})
+                 "imported_at": time.time(), "purged": purged})
     return info
 
 
@@ -207,18 +267,34 @@ class _Tee:
 
 
 def _bind_stdio(log_path):
-    global _LOG_FH
+    """把 stdout/stderr 双写到日志文件。
+
+    幂等：更新网关时 `_configure()` 会再调一次，这里必须始终从**原始流**重新包
+    一层 Tee。否则每更新一次就会在旧 Tee 外面再套一层，同一行日志被写进文件
+    两遍、三遍……（真机上表现为日志越更越长，且每行重复递增）。
+    """
+    global _LOG_FH, _STDIO_ORIGINAL
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     try:
-        _LOG_FH = open(log_path, "a", encoding="utf-8", buffering=1)
+        log_fh = open(log_path, "a", encoding="utf-8", buffering=1)
     except Exception:
         return
-    for name in ("stdout", "stderr"):
-        current = getattr(sys, name, None)
-        if current is None or not hasattr(current, "write"):
-            setattr(sys, name, _LOG_FH)
+    if _STDIO_ORIGINAL is None:
+        _STDIO_ORIGINAL = {
+            name: getattr(sys, name, None) for name in ("stdout", "stderr")
+        }
+    previous = _LOG_FH
+    _LOG_FH = log_fh
+    for name, original in _STDIO_ORIGINAL.items():
+        if original is None or not hasattr(original, "write"):
+            setattr(sys, name, log_fh)
         else:
-            setattr(sys, name, _Tee(current, _LOG_FH))
+            setattr(sys, name, _Tee(original, log_fh))
+    if previous is not None and previous is not log_fh:
+        try:
+            previous.close()
+        except Exception:
+            pass
 
 
 def _bind_trust_store():
@@ -267,6 +343,7 @@ def _configure(project, data):
 
     _bind_stdio(os.path.join(_LOGS, LOG_NAME))
     trust = _bind_trust_store()
+    _prune_sys_path(core, _PROJECTS_DIR)
     if core not in sys.path:
         sys.path.insert(0, core)
     return {"home": home, "core": core, "logs": _LOGS, "trust": trust}
@@ -342,8 +419,14 @@ def start(project, data, port, lan):
             if not info.get("ok"):
                 _ERROR = info.get("error") or "网关项目不可用"
                 return _dump(_status_locked())
-            if _HOME is None:
+            # 项目换了（更新后重新 start）必须重新 configure：否则 sys.path 里
+            # 还挂着旧项目目录，import 出来的仍是旧代码；顺带把 _BOOTED 复位，
+            # 让新版本自己跑一次首启引导。
+            switched = _CORE is not None and os.path.abspath(project) != _CORE
+            if _HOME is None or switched:
                 _configure(project, data)
+                if switched:
+                    _BOOTED = False
             gateway = _gateway()
 
             host = "0.0.0.0" if lan else "127.0.0.1"
@@ -472,14 +555,11 @@ def describe(project):
 
 
 def loaded():
-    """进程里是否已经 import 过网关本体。
+    """进程里是否还留着网关本体（`wb_proxy` 在 sys.modules 里）。
 
-    外壳用这个决定导入后要不要重启进程：
-
-    * 首次安装 —— 还没启动过网关，`wb_proxy` 不在 sys.modules，导入完直接起
-      服务即可，不重启（重启会把用户甩回桌面，看起来像闪退）；
-    * 覆盖升级 —— 旧版本已经 import，模块级状态（账号池、调度线程、环境变量）
-      都留在内存里，热替换不可靠，只能重启进程。
+    正常路径上它总是 False：install() 成功时已经把旧项目 import 进来的模块摘掉，
+    所以外壳不需要重启进程，直接重新 start() 就会加载新版本。留这个接口是为了
+    诊断——真机上如果它返回 True 而版本号没变，说明某次 install 没走 purge。
     """
     return _dump({"ok": True, "loaded": "wb_proxy" in sys.modules})
 
