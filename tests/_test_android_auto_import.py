@@ -129,6 +129,15 @@ class ShellWiringTests(unittest.TestCase):
         self.assertIn("PendingIntent.getActivity", body)
         self.assertIn("AlarmManager", body)
 
+    def test_relaunch_alarm_is_exact(self):
+        """重启进程后用普通 set() 排的闹钟会被待机推迟，界面回不来（真机踩过）。"""
+        body = self.main[self.main.index("private fun scheduleRelaunch("):]
+        body = body[: body.index("\n    }\n")]
+        self.assertIn("setExactAndAllowWhileIdle", body)
+        # Android 14 默认不授予精确闹钟权限，必须有不需要权限的退路
+        self.assertIn("setAlarmClock", body)
+        self.assertIn("canScheduleExactAlarms", body)
+
     def test_status_comes_from_our_own_runtime(self):
         """端口被别人占着时不能假「运行中」——状态必须以运行环境为准。"""
         health_body = self.main[self.main.index("private fun fetchHealth()"):]

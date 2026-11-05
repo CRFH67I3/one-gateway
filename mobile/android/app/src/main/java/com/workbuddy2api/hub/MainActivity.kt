@@ -9,6 +9,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -473,11 +474,40 @@ class MainActivity : Activity() {
             PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val alarms = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        alarms.set(AlarmManager.RTC, System.currentTimeMillis() + 600, pending)
+        scheduleRelaunch(alarms, pending, System.currentTimeMillis() + 600)
         finishAffinity()
         ui.postDelayed({
             android.os.Process.killProcess(android.os.Process.myPid())
         }, 250)
+    }
+
+    /**
+     * 排一条「把界面拉回来」的闹钟。
+     *
+     * 必须精确、且不受应用待机推迟。真机上普通 `set()` 会出事：进程刚死，系统就
+     * 把这个 uid 标成 idle，那条 600ms 的闹钟被攒着发——实测 5 分钟都没响，用户
+     * 更新完就被丢在桌面上（看起来又像「更新完闪退」）。
+     *
+     * 顺序是：能排精确闹钟就排精确闹钟；Android 14 起 `SCHEDULE_EXACT_ALARM`
+     * 默认不授予，拿不到就退成 `setAlarmClock`——它不需要权限、也不会被待机推迟，
+     * 代价是通知栏会闪一下闹钟图标，600ms 后就没了。两者都做不到时才回到 `set()`。
+     */
+    private fun scheduleRelaunch(alarms: AlarmManager, pending: PendingIntent, at: Long) {
+        val exactAllowed = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+            alarms.canScheduleExactAlarms()
+        if (exactAllowed) {
+            try {
+                alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending)
+                return
+            } catch (t: SecurityException) {
+                // 权限在运行期被撤销：继续往下退。
+            }
+        }
+        try {
+            alarms.setAlarmClock(AlarmManager.AlarmClockInfo(at, pending), pending)
+        } catch (t: Throwable) {
+            alarms.set(AlarmManager.RTC, at, pending)
+        }
     }
 
     override fun onBackPressed() {
