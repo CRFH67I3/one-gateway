@@ -66,7 +66,7 @@
     <string name="project_import_ok">已安装版本 %1$s（%2$d 个文件），正在启动网关…</string>
     <string name="project_import_failed">安装失败：%1$s</string>
     <string name="project_none_hint">还没有网关项目。\n\n手动更新：到 GitHub 仓库点 Code → Download ZIP，再在菜单里选「手动更新」挑中这个包。\n自动更新：菜单里选「自动更新」，联网直接下最新版。\n\n两条路只需要一个 ZIP 或一次联网，不需要凭证，也不用先导入任何东西。</string>
-    <string name="project_version">版本：%1$s</string>
+    <string name="project_version">网关版本：%1$s</string>
     <string name="project_imported">更新时间：%1$s</string>
     <string name="project_path">项目目录：%1$s</string>
     <string name="project_panel">面板文件：%1$s</string>
