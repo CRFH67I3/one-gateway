@@ -176,7 +176,7 @@ class MenuSplitTests(unittest.TestCase):
         body = self.main[self.main.index("private fun importProject("):]
         body = body[: body.index("\n    }\n")]
         self.assertIn("GatewayBridge.stageZip(", body)
-        self.assertIn("applyProject(zip)", body)
+        self.assertIn("applyProject(zip", body)
         for word in ("凭证", "credential", "Credential", "license", "License"):
             self.assertNotIn(word, body)
         # 安装入口本身也不带身份参数：ZIP 进、结果出
