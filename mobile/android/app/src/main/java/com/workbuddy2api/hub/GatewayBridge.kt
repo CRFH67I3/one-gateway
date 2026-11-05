@@ -78,13 +78,15 @@ object GatewayBridge {
         return invoke("import_credential", root.absolutePath, dataDir(context).absolutePath, path)
     }
 
-    fun logTail(context: Context, lines: Int): String = try {
+    fun logTail(context: Context, lines: Int): String {
         val root = projectRoot(context) ?: return "还没有导入网关项目"
-        Python.getInstance().getModule(MODULE)
-            .callAttr("log_tail", root.absolutePath, dataDir(context).absolutePath, lines)
-            .toString()
-    } catch (t: Throwable) {
-        "日志不可用: ${t.message}"
+        return try {
+            Python.getInstance().getModule(MODULE)
+                .callAttr("log_tail", root.absolutePath, dataDir(context).absolutePath, lines)
+                .toString()
+        } catch (t: Throwable) {
+            "日志不可用: ${t.message}"
+        }
     }
 
     /** 导入前先把 SAF 的输入流落到缓存：Python 侧只认文件路径。 */
