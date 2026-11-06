@@ -115,10 +115,17 @@ jobs:
             listing=$(unzip -l "$apk")
             printf '%s\n' "$listing" | grep -q "assets/chaquopy/" \
               || { echo "::error::$apk 里没有 Chaquopy 运行时，Python 环境没打进去"; exit 1; }
-            if printf '%s\n' "$listing" | grep -q "assets/core/wb_proxy.py"; then
-              echo "::error::$apk 仍然打包了 assets/core/wb_proxy.py，容器模式不该携带网关源码"
+            # 不止 wb_proxy.py：整个 assets/core/、任何 .py/.pyc、以及面板 HTML
+            # 都不该出现——APK 只是容器，网关必须完全来自用户导入的 ZIP。
+            if printf '%s\n' "$listing" \
+                | awk '$4 ~ /^assets\/core\// || $4 ~ /\.pyc?$/ || $4 ~ /(^|\/)dashboard\.html$/ {print; hit=1} END {exit !hit}'; then
+              echo "::error::$apk 里出现了网关文件（assets/core 或 .py/.pyc/dashboard.html）"
               exit 1
             fi
+            # 网关是纯标准库实现；带出任何 pip 依赖都说明有东西被搬进了 APK。
+            deps=$(unzip -p "$apk" assets/chaquopy/requirements-common.imy 2>/dev/null | tr -d '\000' | wc -c)
+            echo "   依赖清单字节数: $deps（空包约 22 B，只是 ZIP 尾）"
+            [ "$deps" -lt 200 ] || { echo "::error::$apk 带了 pip 依赖，容器不该有第三方包"; exit 1; }
 
             abis=$(printf '%s\n' "$listing" \
               | awk '$4 ~ /^lib\// {split($4, p, "/"); print p[2]}' | sort -u)

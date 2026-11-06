@@ -219,6 +219,8 @@ release 的保留规则在 `app/proguard-rules.pro`：Chaquopy 的 `com.chaquo.p
 
 - **不再把网关源码打进 APK**：容器模式下 `assets/core/` 不再生成，构建只负责把
   `src/main/python/wb_hub_env.py` 与 Chaquopy 运行时塞进去；
+- 装机后**不会**解压任何随包核心：首次启动只会显示「尚未导入网关项目」，装网关必须
+  走「手动更新」或「自动更新」（详见下文「Android 的容器模式」）；
 - 没有提供 keystore 时 release 包用 debug 签名，保证可直接 sideload；要出正式包就设
   `WB_ANDROID_KEYSTORE` / `WB_ANDROID_KEYSTORE_PASSWORD` / `WB_ANDROID_KEY_ALIAS` /
   `WB_ANDROID_KEY_PASSWORD`；
@@ -228,7 +230,8 @@ release 的保留规则在 `app/proguard-rules.pro`：Chaquopy 的 `com.chaquo.p
   直接存二进制会让工作流在 startup 阶段失败（Secret 值必须是合法 UTF-8）；
   另外别指望 `~/.android/debug.keystore`：runner 的 `ANDROID_SDK_HOME` 与 `$HOME`
   不一致时 AGP 会忽略它、自己生成随机密钥。本地不设该变量时仍用各自的 debug keystore；
-- 装机后首次启动会解压核心到 `filesDir/core-bundle`，之后按版本号判断是否重解压。
+- 装机后首次启动**不会**解压任何随包核心：没有导入过项目时只显示「尚未导入网关项目」，
+  装网关必须走「手动更新」或「自动更新」（见下文「Android 的容器模式」）。
 
 ### Android 的容器模式
 
@@ -290,6 +293,27 @@ Python 侧把旧项目的模块摘掉后直接重新 `start()`，面板重新载
   所以看前两字节是不是 `PK`，不是就换下一个地址。
 - **不校验签名/来源**：这里导入的是你自己下载的仓库代码，App 只做路径安全校验（拒绝
   `../` 与绝对路径，跳过 `__MACOSX`）。
+
+**APK 里到底有什么（这条边界怎么守）**
+
+包内只有三样东西：Chaquopy 的 CPython 3.13 运行时、`assets/chaquopy/app.imy`
+（里面唯一的 Python 模块是薄运行时 `wb_hub_env.pyc`）、以及原生外壳（Kotlin +
+布局/字符串/图标）。**没有** `wb_*.py`、`dashboard.html`、`assets/core/`，也不装
+任何 pip 包（`requirements-*.imy` 是空 ZIP）。换句话说：把网关源码全部删掉，这个
+APK 仍然能装、能启动，只是会停在「尚未导入网关项目」。
+
+守这条边界的四道闸：
+
+1. `tests/_test_android_container_purity.py`（17 例）逐层钉住：源码树里不许出现网关
+   文件、`src/main/python` 只许一个模块且不许 `.pyc`/`__pycache__` 残留、薄运行时不
+   出现账号池/HTTP 处理器/模型白名单这类骨架、Kotlin 不读 `assets` 也不用 `file://`、
+   `start()` 必须先有导入的项目；本机能找到 APK 时直接翻包（`app.imy` 只含
+   `wb_hub_env.pyc`、依赖清单为空、没有 `assets/core`）。
+2. `mobile-android` 工作流的 `Report artifacts` 逐个包检查：出现 `assets/core/`、
+   `.py`/`.pyc`、`dashboard.html` 或 pip 依赖，直接判红。
+3. `.gitignore` 保留 `assets/core/` 规则当绊线——真有人拷回来至少不会入库。
+4. 打包路径只有 `src/main/python` 一处：构建脚本不改写 `sourceSets` / `assets.srcDirs`，
+   仓库根只在算 `versionName` 时读一次 `wb_proxy.py` 的 `server_version`（只读不拷）。
 
 自动化测试：`python tests/_test_android_auto_import.py`（外壳接线 + 解压契约，离线秒级）；
 加 `WB_LIVE_IMPORT=1` 会真的从镜像下一次并解压，验证地址当前可用、包结构没变。

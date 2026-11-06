@@ -518,23 +518,6 @@ def stop(project, data):
         return _fail(exc)
 
 
-def import_credential(project, data, path):
-    """把外部 `.info` / JSON 凭证导入账号池（面板之外的补充入口）。"""
-    with _STATE_LOCK:
-        if not _BOOTED or _WB is None or getattr(_WB, "POOL", None) is None:
-            return _dump({"ok": False, "error": "网关还没启动"})
-        try:
-            account = _WB.POOL.import_desktop_credential(path=path, source="mobile-file")
-        except Exception as exc:
-            return _fail(exc)
-        if account is None:
-            return _dump({"ok": False, "error": "文件里没有可用账号"})
-        return _dump({"ok": True,
-                      "uid": getattr(account, "uid", "") or "",
-                      "nickname": getattr(account, "nickname", "") or "",
-                      "accounts": len(_WB.POOL.accounts)})
-
-
 def log_tail(project, data, lines):
     try:
         path = os.path.join(_LOGS, LOG_NAME) if _LOGS else ""

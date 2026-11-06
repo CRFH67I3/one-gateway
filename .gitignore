@@ -68,7 +68,9 @@ desktop.ini
 docker-compose.override.yml
 
 # ---- 移动端（iOS / Android）----
-# 两端的网关核心都是从仓库根目录复制进去的构建产物，源头只有一份，绝不入库。
+# Android 已是「容器模式」：APK 只带 CPython 运行时，网关源码由用户导入 ZIP 提供，
+# assets/core/ 不再生成。这条规则留着当绊线——谁要是又把核心拷回来，至少不会入库
+# （tests/_test_android_container_purity.py 会直接判红）。
 mobile/android/app/src/main/assets/core/
 # iOS 包内资源：app/ 是核心代码，python/ 是 CPython 标准库，均由 sync-core.sh 生成。
 mobile/ios/WorkBuddyHub/Resources/app/*

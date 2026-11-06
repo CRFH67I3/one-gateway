@@ -245,7 +245,7 @@ python tests/run_all.py            # 全部套件
 python tests/run_all.py realm      # 只跑名字里含 realm 的
 ```
 
-- 266 个套件：202 个 Python + 64 个 JS；JS 需要 PATH 上有 `node`，缺失时会跳过并提示。
+- 267 个套件：203 个 Python + 64 个 JS；JS 需要 PATH 上有 `node`，缺失时会跳过并提示。
 - `tests/_mobile_check.py` 是独立的 Playwright 手机/桌面布局检查器（需自行安装 Playwright），按需手动运行，不在上面的套件集里。
 - CI（`.github/workflows/tests.yml`）跑同一条命令：Ubuntu 上 python 3.9 与 3.12（3.9 是本项目声称的最低版本），Windows 上 python 3.12；推送 `v*` tag 时额外断言 **tag == 源码版本**（`-ci` 演练 tag 豁免）。
 
@@ -262,6 +262,8 @@ python tests/run_all.py realm      # 只跑名字里含 realm 的
 - **Android 最低支持版本抬到 Android 8.0（`minSdk 26`）**：外壳的两处地基都假定这一档——常驻通知用通知渠道（`NotificationChannel`），服务启动用 `startForegroundService()`。停在 24/25 就得为它们各写一条旧路径，而 8.0 以下机型又跑不动 Chaquopy 的 Python 3.13 与现代 WebView，分叉实际永远走不到，于是删掉死代码、把底线抬平；`targetSdk` 仍为 34。
 
 - **Android 构建工具链跟进最新平台**：`compileSdk` 从 35 抬到 **37（Android 17）**，AGP 8.7.3 → **9.4.1**、Gradle 8.9 → **9.6**、Chaquopy 16.1.0 → **17.0.0**（16.x 只支持到 AGP 8.13）。`compileSdk` 只影响编译期可见 API，`targetSdk` 仍显式钉在 34，运行时行为不变。AGP 9 的内建 Kotlin 让 `org.jetbrains.kotlin.android` 插件与 `android.kotlinOptions` 一起退场（`jvmTarget` 自动对齐 `targetCompatibility`），`defaultConfig.resValue(...)` 则要显式打开 `buildFeatures { resValues = true }` 才能用。
+
+- **Android 再次审计「只是一个运行容器」**：删掉 `src/main/python/__pycache__`（本地跑过一遍留下的 `.pyc`，会被 Chaquopy 一起塞进 `assets/chaquopy/app.imy`）与薄运行时里已无调用者的 `import_credential`（它直接往网关账号池塞账号，正是已下线的「导入账号凭证」那条死路）。新增 `tests/_test_android_container_purity.py`（17 例），从源码树、薄运行时、外壳、构建脚本到实际 APK 产物逐层钉住「包里没有网关的任何代码」；`mobile-android` 工作流的 `Report artifacts` 也从只看 `assets/core/wb_proxy.py` 扩展成拦截任何 `assets/core/`、`.py`/`.pyc`、`dashboard.html` 与 pip 依赖。实测：全新安装的包在未导入项目时只显示「尚未导入网关项目」，联网自动更新后跑起来的是导入的那份（App 版本 `1.10.9-x64`、网关版本 `1.10.11`，两者独立）。
 
 完整历史版本与详细变更日志请查阅 **[docs/CHANGELOG.md](docs/CHANGELOG.md)**。
 

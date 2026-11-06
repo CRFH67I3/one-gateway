@@ -21,7 +21,7 @@ object GatewayBridge {
     private const val MARKER = "wb_proxy.py"
     private const val CACHE_ZIP = "imported-project.zip"
 
-    /** 自动导入的仓库：用户自己的 fork，main 分支就是「最新网关」。 */
+    /** 自动更新拉取的仓库：网关上游，`main` 分支就是「最新网关」。 */
     private const val REPO = "ardeyouxipianyi/workbuddy2api-hub"
     private const val BRANCH = "main"
 
