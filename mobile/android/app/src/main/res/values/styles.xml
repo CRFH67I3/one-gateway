@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 外壳的按钮组件。整个 App 只有这一套按钮外观，页面上任何新按钮都应该挑
+         Primary 或 Secondary 之一，不要再单独写 background/textSize。
+
+         几何全部写在这里而不是布局里：高度、最小宽度、圆角、字号、左右留白
+         只存在一份，两个按钮不可能再长成两种样子。 -->
+    <style name="Hub.Button" parent="@android:style/Widget.Material.Button.Borderless">
+        <item name="android:layout_height">@dimen/button_height</item>
+        <item name="android:minWidth">@dimen/button_min_width</item>
+        <item name="android:maxWidth">@dimen/button_min_width</item>
+        <item name="android:minHeight">0dp</item>
+        <item name="android:paddingStart">18dp</item>
+        <item name="android:paddingEnd">18dp</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:gravity">center</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+        <!-- Borderless 仍带着主题的 backgroundTint（colorButtonNormal），不关掉的话
+             它会把下面自绘的圆角背景整块染成灰的——这正是原来那个灰块的来源。 -->
+        <item name="android:backgroundTint">@null</item>
+        <item name="android:stateListAnimator">@null</item>
+    </style>
+
+    <!-- 主操作：实心 accent。首装页是「手动更新」，其它状态是「启动网关」。 -->
+    <style name="Hub.Button.Primary">
+        <item name="android:background">@drawable/bg_btn_primary</item>
+        <item name="android:textColor">@color/btn_label_on_primary</item>
+    </style>
+
+    <!-- 次操作：只有描边。首装页是「自动更新（联网下载）」。 -->
+    <style name="Hub.Button.Secondary">
+        <item name="android:background">@drawable/bg_btn_secondary</item>
+        <item name="android:textColor">@color/btn_label_secondary</item>
+    </style>
+</resources>

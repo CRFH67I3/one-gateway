@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 外壳里所有按钮共用的一组几何。两个按钮的差别只允许是「实心 / 描边」，
+         高度、圆角、最小宽度、字号都从这里取，不在布局里各写一份——
+         之前「手动更新」是默认灰块、「自动更新」是裸文字，就是这么分叉出来的。 -->
+    <dimen name="button_height">46dp</dimen>
+    <dimen name="button_min_width">240dp</dimen>
+    <dimen name="button_radius">10dp</dimen>
+    <dimen name="button_gap">10dp</dimen>
+</resources>

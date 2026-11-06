@@ -755,9 +755,10 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQUEST_PROJECT = 1002
-        // WebView 首帧底色的两端：取面板深色档里最深的那一档，加载完成前不刺眼。
-        private const val COLOR_WEB_BG_LIGHT = 0xFFFFFFFF.toInt()
-        private const val COLOR_WEB_BG_DARK = 0xFF101114.toInt()
+        // WebView 首帧底色 = 面板的 bg（浅色 #f4f6f9 / 深色 #0f1115），
+        // 与 @color/page_bg 同值。面板第一帧到达前露出的就是它，两边同色才不闪。
+        private const val COLOR_WEB_BG_LIGHT = 0xFFF4F6F9.toInt()
+        private const val COLOR_WEB_BG_DARK = 0xFF0F1115.toInt()
         private const val MENU_RESTART = 2
         private const val MENU_SETTINGS = 3
         private const val MENU_PROJECT = 4

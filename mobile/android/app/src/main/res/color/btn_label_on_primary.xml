@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 主按钮的字色：正常白字，置灰时留 70% 白——背景已经褪了一档，
+     字再压太狠会变成「看不见」，而它其实是「暂时不可点」。 -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_enabled="false" android:color="@color/button_on_primary_disabled" />
+    <item android:color="@color/button_on_primary" />
+</selector>

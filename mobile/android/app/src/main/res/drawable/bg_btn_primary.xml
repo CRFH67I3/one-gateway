@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 主按钮：与面板主按钮同款（实心 accent + 圆角 + 白字）。
+     禁用态单独给一块低压的实心色（面板是整块 opacity .45，这里等价成“褪一档”），
+     因为导入过程中两个按钮都会置灰，用户得一眼看出此刻点不动。 -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item android:state_enabled="false">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/button_primary_disabled" />
+            <corners android:radius="@dimen/button_radius" />
+        </shape>
+    </item>
+
+    <item>
+        <ripple android:color="@color/button_ripple">
+            <item android:id="@android:id/mask">
+                <shape android:shape="rectangle">
+                    <solid android:color="#FFFFFFFF" />
+                    <corners android:radius="@dimen/button_radius" />
+                </shape>
+            </item>
+            <item>
+                <shape android:shape="rectangle">
+                    <solid android:color="@color/button_primary" />
+                    <corners android:radius="@dimen/button_radius" />
+                </shape>
+            </item>
+        </ripple>
+    </item>
+</selector>

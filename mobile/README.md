@@ -121,6 +121,33 @@ mobile/
 系统切深浅会重建 Activity（清单里没放行 `uiMode`），面板地址因此重新取值，不需要额外
 监听；`wb:system-theme` 事件留给「不重载页面也要换肤」的场景。
 
+## Android 外壳与面板共用一套外观
+
+原生那层（顶栏 + 覆盖层）和 WebView 里的面板拼在同一个屏幕上：状态栏压着面板顶栏，
+覆盖层直接盖在面板区域上。两边各写一套颜色，看上去就是两个 App 拼起来的，所以外壳
+的颜色资源直接对应面板新界面（`html[data-ui="next"]`，手机上看到的就是这套）的
+CSS token，改名/改值时两边一起动：
+
+| 外壳资源 | 面板 token | 用在哪 |
+|---|---|---|
+| `@color/page_bg` | `--bg` | 页面底色、覆盖层、WebView 首帧底色 |
+| `@color/header_bg` | `--panel` | 顶栏、状态栏、导航栏 |
+| `@color/text_primary` / `@color/text_secondary` | `--fg` / `--dim` | 顶栏状态、提示文案 |
+| `@color/colorPrimary` | `--accent` | 系统对话框强调色、主按钮 |
+
+> 面板里还有一套旧的 `:root` token（暖米 + 陶土，只在旧界面下生效）。外壳对齐的是
+> next 那套（冷灰 + 靛蓝），别照着 `:root` 改，否则真机上又对不上。
+
+按钮只有一套组件，两个变体：`Hub.Button.Primary`（实心 accent）与
+`Hub.Button.Secondary`（panel 底 + 1dp line 描边）。高度、最小宽度、圆角、字号都在
+`Hub.Button` 与 `values/dimens.xml` 里定义一次，布局里只写 `style=`，不要再给单个
+按钮补 `android:textSize` / `background` / `textColor`——首装界面那两个「灰块 + 裸文字」
+就是各写各的后果。另外 `Hub.Button` 必须清掉 `backgroundTint`：`borderlessButtonStyle`
+还带着主题的 `colorButtonNormal`，不清掉会把自绘的圆角背景整块染成系统灰。
+
+`tests/_test_android_ui_tokens.py` 同时盯两件事：按钮有没有在布局里分叉、外壳配色
+有没有跟面板 token 跑偏（面板换肤而外壳没跟，套件会红）。
+
 ## iOS 后台保持与实时活动
 
 App 内菜单 →「后台保持」有三个开关，对应三种手段：

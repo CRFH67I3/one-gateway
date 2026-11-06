@@ -1,9 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- 系统深色下的外壳。取值贴着面板深色档的底色（#101114 一带），
-         WebView 还没交出第一帧时露出来的就是这层，不能比页面亮一截。 -->
-    <color name="header_bg">#17181C</color>
-    <color name="page_bg">#101114</color>
-    <color name="text_primary">#EDEBE3</color>
-    <color name="text_secondary">#A5A29A</color>
+    <!-- 系统深色下的外壳：取值等于面板新界面的深色 token
+         （bg #0f1115 / panel #171a21 / accent #818cf8）。
+         WebView 还没交出第一帧时露出来的就是 page_bg，和面板首屏同色才不会闪一下。 -->
+    <color name="header_bg">#171A21</color>
+    <color name="page_bg">#0F1115</color>
+    <color name="text_primary">#F2F4F7</color>
+    <color name="text_secondary">#98A2B3</color>
+    <color name="dot_idle">#667085</color>
+    <color name="dot_running">#34D399</color>
+
+    <!-- 深色档按钮：面板的 accent 在深色下提亮成 #818cf8，实心按钮跟着换；
+         次按钮用 panel 底 + 更暗一档的描边。 -->
+    <color name="button_primary">#818CF8</color>
+    <color name="button_primary_disabled">#42487B</color>
+    <color name="button_on_primary">#FFFFFF</color>
+    <color name="button_on_primary_disabled">#99FFFFFF</color>
+    <color name="button_secondary_bg">#171A21</color>
+    <color name="button_secondary_border">#2A303B</color>
+    <color name="button_label_disabled">#515763</color>
+    <color name="button_ripple">#33FFFFFF</color>
 </resources>
