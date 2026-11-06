@@ -56,7 +56,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--request-dir",
                         default=os.environ.get("WB_UPDATE_REQUEST_DIR",
-                                               "/run/workbuddy2api-hub-updater"))
+                                               "/run/proxy-gateway-runtime-updater"))
     parser.add_argument("--repo", default=os.environ.get("WB_UPDATE_REPO", ""))
     parser.add_argument("--root", default=os.environ.get("WB_APP_ROOT", "/app"))
     # "app" = only wb_*.py + dashboard.html (image / rootfs deployments);

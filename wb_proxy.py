@@ -25343,7 +25343,7 @@ def _apply_cli_overrides(args):
         USAGE_LOG = os.path.join(USAGE_DIR, "usage.jsonl")
         # 事件日志（remaining 预算样本的来源）必须跟着 --usage-dir 走：这个
         # 常量在 import 时按默认目录算过，漏掉它真机上会一直写 ENOENT
-        # （2026-10-10 实测 /usr/lib/workbuddy2api/usage/limit-events.jsonl）。
+        # （2026-10-10 实测 /usr/lib/proxygateway/usage/limit-events.jsonl）。
         LIMIT_EVENTS_FILE = os.path.join(USAGE_DIR, "limit-events.jsonl")
         # 按天归档的估算数据同理（少了它，跨天归档会一直写默认目录/ENOENT）。
         ESTIMATE_DAILY_FILE = os.path.join(USAGE_DIR, "estimate-daily.json")

@@ -16,7 +16,7 @@ repository-wide glob: that list is also the contract #29's updater consumes
 an accidental new file in the checkout can never end up in a release.
 
     python release/release_tools.py portable --version 1.6.17 --tag v1.6.17 \
-        --out dist/workbuddy2api-hub-v1.6.17.zip
+        --out dist/proxy-gateway-runtime-v1.6.17.zip
 """
 from __future__ import annotations
 
@@ -132,7 +132,7 @@ def build_portable(version, tag, out_path, source=ROOT, runtime_dir=None,
 
     manifest = {
         "schema": SCHEMA,
-        "name": "workbuddy2api-hub",
+        "name": "proxy-gateway-runtime",
         "version": version,
         "tag": tag,
         # Everything below `files` lives under this folder, so an updater can
@@ -235,9 +235,9 @@ def compose_body(existing, block):
 
 def asset_names(version, release):
     return (
-        "workbuddy2api-hub-v%s.zip" % version,
-        "workbuddy2api_%s-%s_all.ipk" % (version, release),
-        "workbuddy2api-%s-r%s.apk" % (version, release),
+        "proxy-gateway-runtime-v%s.zip" % version,
+        "proxygateway_%s-%s_all.ipk" % (version, release),
+        "proxygateway-%s-r%s.apk" % (version, release),
     )
 
 

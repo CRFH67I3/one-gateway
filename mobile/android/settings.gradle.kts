@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "WorkBuddyHub"
+rootProject.name = "ProxyGatewayRuntime"
 include(":app")

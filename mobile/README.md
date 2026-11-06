@@ -25,7 +25,7 @@ mobile/
 │   └── wb_mobile_runtime.py     # iOS 启动器：沙盒目录、核心同步、证书、start/stop/status
 ├── android/                     # Kotlin 外壳 + Chaquopy（内嵌 CPython 3.13）
 │   ├── app/src/main/
-│   │   ├── java/com/workbuddy2api/hub/
+│   │   ├── java/com/proxygateway/runtime/
 │   │   │   ├── HubApp.kt            # Application：初始化 CPython
 │   │   │   ├── GatewayBridge.kt     # Kotlin ⇄ Python 通道、项目解压与指针、自动下载
 │   │   │   ├── GatewayService.kt    # 前台服务 + 常驻通知
@@ -37,19 +37,19 @@ mobile/
     ├── project.yml                  # XcodeGen 工程描述
     ├── scripts/sync-core.sh         # 复制核心 + 铺标准库（含二进制扩展）+ 装 certifi
     ├── scripts/install-python.sh    # 构建后：lib-dynload 的 .so 转 Frameworks/*.framework
-    ├── WorkBuddyHub/Sources/
+    ├── ProxyGatewayRuntime/Sources/
     │   ├── PyBridge.swift           # CPython C API 桥（GIL、PYTHONHOME/PYTHONPATH）
     │   ├── RootViewController.swift  # WKWebView 面板 + 前后台让位
     │   ├── BackgroundKeepAlive.swift # iOS 26 持续后台任务（BGContinuedProcessingTask）
     │   ├── LiveActivityController.swift  # 锁屏/灵动岛实时活动（ActivityKit）
     │   ├── BackgroundSettingsViewController.swift  # 「后台保持」三个开关
     │   ├── CorePaths.swift          # 沙盒路径 / 外壳开关 / 局域网地址
-    │   ├── WorkBuddyHub-Bridging-Header.h  # #include <Python/Python.h>
+    │   ├── ProxyGatewayRuntime-Bridging-Header.h  # #include <Python/Python.h>
     │   └── AppDelegate.swift
     ├── Shared/GatewayActivityAttributes.swift  # 主 App 与 Widget 共享的活动定义
-    ├── WorkBuddyHubWidget/          # Widget Extension：Live Activity 的锁屏/灵动岛视图
-    ├── WorkBuddyHub/PythonBridge/wb_hub_ios.py
-    └── WorkBuddyHub/Resources/       # 构建时生成（不入库）
+    ├── ProxyGatewayRuntimeWidget/          # Widget Extension：Live Activity 的锁屏/灵动岛视图
+    ├── ProxyGatewayRuntime/PythonBridge/wb_hub_ios.py
+    └── ProxyGatewayRuntime/Resources/       # 构建时生成（不入库）
         ├── app/                      # 核心代码 + 桥接层 + certifi → PYTHONPATH
         └── python/lib/python3.13/    # CPython 标准库 → PYTHONHOME
 ```
@@ -182,7 +182,7 @@ App 内菜单 →「后台保持」有三个开关，对应三种手段：
 - 实时活动的锁屏与灵动岛是**同一张活动**，只能在 App 前台 `request`。所以「锁屏实时活动」
   实际是总开关，关掉即 `end`；「灵动岛显示」通过 `ContentState` 里的标志位控制视图，
   这样不用开 App Group（Widget Extension 直接读 `context.state`）；
-- Live Activity 的视图在 `WorkBuddyHubWidget` 这个 app-extension 里，主包必须把
+- Live Activity 的视图在 `ProxyGatewayRuntimeWidget` 这个 app-extension 里，主包必须把
   `.appex` 嵌进 `PlugIns/`，否则卡片不会出现；
 - 未签名 IPA 里 appex 也是未签名的，用 AltStore / Sideloadly 重签时会一起处理嵌套 bundle；
 - 主 target 的部署版本是 **iOS 15**，而 ActivityKit 要 16.1，所以 `GatewayActivityAttributes`
@@ -283,7 +283,7 @@ APK 是**运行环境**，不是网关本身。装网关只有一件事——把
 
 打开 App，点首装界面上的「**自动更新（联网下载）**」（装好之后从右上角菜单进
 「自动更新」）。App 会自己去
-`https://v4.gh-proxy.org/https://github.com/ardeyouxipianyi/workbuddy2api-hub/archive/refs/heads/main.zip`
+`https://v4.gh-proxy.org/https://github.com/ardeyouxipianyi/proxy-gateway-runtime/archive/refs/heads/main.zip`
 下载仓库 `main` 的最新快照（首选 gh-proxy 镜像，失败再退第二个镜像、最后直连
 github.com），下载完走与手动更新完全相同的解压/切指针/重新加载流程。覆盖层会实时显示
 「正在下载…42%（1.1 MB）」这类进度，失败时给出每个地址各自的失败原因。
@@ -387,10 +387,10 @@ python mobile/android/tools/e2e_auto_import.py --keep # 结束后不停 App，�
 # 需要 macOS + Xcode；CI 用 macos-15 + Xcode 26（iOS 26 的持续后台任务要用新 SDK）
 cd mobile/ios
 ./scripts/sync-core.sh                       # 复制核心 + 合并标准库/二进制扩展 + 装 certifi
-brew install xcodegen && xcodegen generate   # 生成 WorkBuddyHub.xcodeproj
+brew install xcodegen && xcodegen generate   # 生成 ProxyGatewayRuntime.xcodeproj
 # Vendor/Python.xcframework 需先下载（CI 会自动做）：
 #   https://github.com/beeware/Python-Apple-support/releases/download/3.13-b18/Python-3.13-iOS-support.b18.tar.gz
-open WorkBuddyHub.xcodeproj                  # 选自己的 Team 后可真机运行
+open ProxyGatewayRuntime.xcodeproj                  # 选自己的 Team 后可真机运行
 ```
 
 > 构建时还有一步 `install-python.sh`（`postBuildScripts` 里，自动执行），把
@@ -433,8 +433,7 @@ open WorkBuddyHub.xcodeproj                  # 选自己的 Team 后可真机运
 1. **iOS 后台**：iOS 26 起可以在「后台保持」里打开**持续后台处理**
    （`BGContinuedProcessingTask`），切到后台后系统继续给网关后台时间，并在锁屏/灵动岛
    显示一张进度卡片。时长由系统按电量与后台任务数量决定，到期后会停监听、回前台自动恢复。
-   iOS 26 以下没有这个能力，仍是 20 秒宽限后停止监听。需要 24×7 常驻请用 Android、
-   电脑版或 Docker。
+   iOS 26 以下没有这个能力，仍是 20 秒宽限后停止监听。需要 24×7 常驻请用 Android。
 2. **账号登录**：电脑端 `.info` 凭据自 2026-09-24 起是加密信封，解密密钥要从未被
    扫描的桌面客户端进程内存里回收，手机上做不到——所以 App 菜单里**不提供**「导入账号
    凭证」这个入口。登录一律在面板里点「+ 添加账号 (OAuth)」完成扫码授权。

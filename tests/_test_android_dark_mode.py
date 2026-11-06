@@ -26,7 +26,7 @@ import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ANDROID = os.path.join(ROOT, "mobile", "android")
-JAVA = os.path.join(ANDROID, "app", "src", "main", "java", "com", "workbuddy2api", "hub")
+JAVA = os.path.join(ANDROID, "app", "src", "main", "java", "com", "proxygateway", "runtime")
 RES = os.path.join(ANDROID, "app", "src", "main", "res")
 DASHBOARD = os.path.join(ROOT, "dashboard.html")
 

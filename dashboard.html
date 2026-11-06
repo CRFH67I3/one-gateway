@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>WorkBuddy 控制台</title>
+<title>Proxy Gateway Runtime · 中转网关</title>
 <!-- 首帧判定：必须留在 <head>、在任何页面内容之前同步执行。
      没有面板会话令牌（无痕 / 首次访问 / 已登出）→ 不动 markup 上的 display:flex，
      登录闸门随首帧一起出现，看板骨架不会被先画出来再盖住。
@@ -2105,7 +2105,7 @@ if(!window.__NEXT_UI__ && defaultConsoleLayout) {
     'Token 消耗与推理指标透视': 'Token usage and reasoning metrics',
     'WorkBuddy 独立桌面客户端 (WB)': 'WorkBuddy standalone desktop client (WB)',
     'WorkBuddy 用量看板': 'WorkBuddy Usage Dashboard',
-    'WorkBuddy 网关': 'WorkBuddy Gateway',
+    '中转网关': 'Proxy Gateway Runtime',
     'WorkBuddy 控制台': 'WorkBuddy Console',
     'WorkBuddy 仓库': 'WorkBuddy repo',
     '[task_runner] 正在启动全自动任务接取、事件上报与奖励领取流水...': '[task_runner] Starting the fully automatic task claiming, event reporting and reward claiming pipeline...',
@@ -2847,7 +2847,7 @@ if(!window.__NEXT_UI__ && defaultConsoleLayout) {
     '更新服务未安装': 'Updater is not installed',
     '本部署没有面板内安装能力': 'This deployment cannot install from the panel',
     '更新服务状态不可用': 'Updater status is unavailable',
-    '更新服务已经安装，但读不到它的状态。请确认服务在运行：systemctl status workbuddy2api-hub-updater.path': 'The updater is installed but its status cannot be read. Check that the service is running: systemctl status workbuddy2api-hub-updater.path',
+    '更新服务已经安装，但读不到它的状态。请确认服务在运行：systemctl status proxy-gateway-runtime-updater.path': 'The updater is installed but its status cannot be read. Check that the service is running: systemctl status proxy-gateway-runtime-updater.path',
     '面板内安装需要本机注册更新服务，当前部署没有检测到。手机 App：用 App 右上角菜单的「自动更新」；Linux 服务器：在部署目录执行 sudo sh ops/aliyun/install-updater.sh；便携包：解压运行即自带更新能力。': 'Installing from the panel needs an updater registered on this machine, and none was found. Mobile app: use "Update automatically" in the app menu. Linux server: run sudo sh ops/aliyun/install-updater.sh in the deployment directory. Portable package: the extracted package updates itself.',
     '等待安装': 'Queued',
     '正在下载更新包': 'Downloading update package',
@@ -3533,7 +3533,7 @@ if(!window.__NEXT_UI__ && defaultConsoleLayout) {
     "Key 维度只从本次升级之后开始记录：更早的请求没有这个字段，会一直留在「(切换前)」里且不会再增长。": "Key 維度只從本次升級之後開始記錄：更早的請求沒有這個欄位，會一直留在「(切換前)」裡且不會再增長。",
     "OpenRouter 价估算：按 OpenRouter 公布的模型价折算，覆盖该账号在所选区间内的请求；按条件定价的模型（输入长度阈值或时段）按每条请求取档；单条请求实际用的策略、三档单价与匹配来源见「最近请求」里那条的悬停提示": "OpenRouter 價估算：按 OpenRouter 公佈的模型價折算，覆蓋該帳號在所選區間內的請求；按條件定價的模型（輸入長度閾值或時段）按每條請求取檔；單條請求實際用的策略、三檔單價與匹配來源見「最近請求」裡那條的懸停提示",
     "OpenRouter 价估算：按该行（模型·区域·账号）的 token 消耗折算；按条件定价的模型（输入长度阈值或时段）按每条请求取档；单条请求实际用的策略、三档单价与匹配来源见「最近请求」里那条的悬停提示": "OpenRouter 價估算：按該行（模型·區域·帳號）的 token 消耗折算；按條件定價的模型（輸入長度閾值或時段）按每條請求取檔；單條請求實際用的策略、三檔單價與匹配來源見「最近請求」裡那條的懸停提示",
-    "WorkBuddy 网关看板": "WorkBuddy 閘道看板",
+    "中转网关看板": "中轉閘道看板",
     "WorkBuddy 控制台": "WorkBuddy 控制台",
     "WorkBuddy 仓库": "WorkBuddy 倉庫",
     "[task_runner] 正在启动全自动任务接取、事件上报与奖励领取流水...": "[task_runner] 正在啟動全自動任務接取、事件上報與獎勵領取流水...",
@@ -5080,14 +5080,14 @@ html[data-ui="next"] #nextContent .console-shell > main {padding:24px;max-width:
 <body>
 <header>
   <div class="header-left" style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
-    <h1 id="classicTitle"><span class="dot" id="statusDot"></span>WorkBuddy 网关</h1>
+    <h1 id="classicTitle"><span class="dot" id="statusDot"></span>中转网关</h1>
     <button type="button" class="console-mobile-menu" id="btnConsoleNav" onclick="toggleConsoleNav()" aria-label="打开功能导航" aria-controls="consoleSidebar" aria-expanded="false">☰</button>
     <div class="console-product">
       <span class="console-mark" aria-hidden="true"><i></i><i></i><i></i></span>
       <span class="console-wordmark">WorkBuddy<span>API HUB</span></span>
     </div>
     <div class="console-service"><span id="consoleStatusSlot"></span><span>本地网关</span><span class="console-port" id="consolePort">8788</span></div>
-    <a class="gh-link" href="https://github.com/ardeyouxipianyi/workbuddy2api-hub" target="_blank" rel="noopener noreferrer"
+    <a class="gh-link" href="https://github.com/CRFH67I3/proxy-gateway-runtime" target="_blank" rel="noopener noreferrer"
        title="查看 WorkBuddy 项目仓库" aria-label="WorkBuddy 项目仓库">
       <svg viewBox="0 0 16 16" aria-hidden="true">
         <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
@@ -5200,8 +5200,8 @@ html[data-ui="next"] #nextContent .console-shell > main {padding:24px;max-width:
 <div id="nextShell">
   <aside id="nextSidebar" aria-label="主导航">
     <div class="next-brand">
-      <div class="next-brand-mark">W</div>
-      <div class="next-brand-text"><b>WorkBuddy</b><span>gateway console</span></div>
+      <div class="next-brand-mark">P</div>
+      <div class="next-brand-text"><b>Proxy Gateway</b><span>runtime console</span></div>
     </div>
     <div class="next-nav-label">工作台</div>
     <nav class="next-nav" id="nextNav">
@@ -5243,7 +5243,7 @@ html[data-ui="next"] #nextContent .console-shell > main {padding:24px;max-width:
       </button>
     </nav>
     <div class="next-sidebar-foot">
-      <a class="next-side-link" href="https://github.com/ardeyouxipianyi/workbuddy2api-hub" target="_blank" rel="noopener noreferrer">
+      <a class="next-side-link" href="https://github.com/CRFH67I3/proxy-gateway-runtime" target="_blank" rel="noopener noreferrer">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
         WorkBuddy 仓库
       </a>
@@ -16029,7 +16029,7 @@ function updateInstallHint(data){
   if(data.install_enabled === true) return '';
   const channel = String(data.install_channel || '');
   if(channel === 'systemd' || channel === 'external'){
-    return '更新服务已经安装，但读不到它的状态。请确认服务在运行：systemctl status workbuddy2api-hub-updater.path';
+    return '更新服务已经安装，但读不到它的状态。请确认服务在运行：systemctl status proxy-gateway-runtime-updater.path';
   }
   return '面板内安装需要本机注册更新服务，当前部署没有检测到。手机 App：用 App 右上角菜单的「自动更新」；'
     + 'Linux 服务器：在部署目录执行 sudo sh ops/aliyun/install-updater.sh；便携包：解压运行即自带更新能力。';
@@ -17366,10 +17366,10 @@ async function autoAssignSlots(){
   toast('已为 ' + unbound.length + ' 个未绑定账号分配代理出口', 'ok');
 }
 
-/* 智能体配置只在「浏览器和网关进程同一台机器」时成立（issue #246）：服务端 /
-   Docker / OpenWrt 部署下看板是远程打开的，一键配置改的是容器或路由器里的
-   配置目录，到不了用户自己的电脑。服务端据此回 enabled:false，这里把入口整个
-   撤掉；判定失败（网络抖动等）保持可见——本机用户不该因此丢掉这个入口。 */
+/* 智能体配置只在「浏览器和网关进程同一台机器」时成立（issue #246）：自建服务端 /
+   路由器部署下看板是远程打开的，一键配置改的是远端机器上的配置目录，到不了用户
+   自己的电脑。服务端据此回 enabled:false，这里把入口整个撤掉；判定失败（网络抖动
+   等）保持可见——本机用户不该因此丢掉这个入口。 */
 let AGENTS_AVAILABLE = true;
 async function loadAgentsAvailability(){
   try {

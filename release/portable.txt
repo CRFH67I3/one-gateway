@@ -14,7 +14,6 @@
 # 刻意不包含：
 #   accounts/  usage/      —— 用户数据，属于受保护路径，永不作为替换目标
 #                            （程序启动时自己 os.makedirs，不需要占位文件）
-#   Dockerfile / docker-compose* / quick-deploy.sh —— Docker 部署路径，不进便携包
 #   tests/  .github/  release/  wrt/  scripts/ —— 开发与发布工具，不进便携包
 #
 # tests/_test_release_assets.py 会断言：仓库里每个 wb_*.py 都在这份清单里
@@ -25,11 +24,11 @@ README.md
 dashboard.html
 console_tail.py
 ops/aliyun/install-updater.sh
-ops/aliyun/workbuddy2api-hub-updater.py
-ops/aliyun/workbuddy2api-hub-updater.service
-ops/aliyun/workbuddy2api-hub-updater.path
-ops/aliyun/workbuddy2api-hub-updater.conf
-ops/aliyun/workbuddy2api-hub-updater-app.conf
+ops/aliyun/proxy-gateway-runtime-updater.py
+ops/aliyun/proxy-gateway-runtime-updater.service
+ops/aliyun/proxy-gateway-runtime-updater.path
+ops/aliyun/proxy-gateway-runtime-updater.conf
+ops/aliyun/proxy-gateway-runtime-updater-app.conf
 
 start-wb-proxy.bat
 start-wb-proxy-visible.bat

@@ -6,7 +6,7 @@ account has been restricted due to unusual activity","zh":"账号存在异常行
 （yetone/magpie #1849 的对照：同一请求、同一套头、同一模型，有的账号 200、
 有的 403）。
 
-社区复盘（Zhengyuuuui/workbuddy2api《封禁事件复盘与改进执行清单》）给出的
+社区复盘（Zhengyuuuui/proxygateway《封禁事件复盘与改进执行清单》）给出的
 处置红线是：看到 11140 立即停手，解封前严禁换号继续打同一台设备——设备指纹
 会连坐。旧实现在 11140 上「冷却该号、立刻换下一个号继续同一请求」，一个请求
 能遍历整个池子；#422 用户实测 7 个号在一次任务里全被封。

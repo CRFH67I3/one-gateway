@@ -1,4 +1,6 @@
-# WorkBuddy2API-Hub — 国际版、国内版多账号网关中枢
+# Proxy Gateway Runtime — 中转网关运行时
+
+> 原名 WorkBuddy2API-Hub。项目已更名，仓库迁移到 [CRFH67I3/proxy-gateway-runtime](https://github.com/CRFH67I3/proxy-gateway-runtime)；旧地址仍会被 GitHub 重定向。它把 WorkBuddy（国际版 / 国内版）与 CodeArts 的多账号池封装成标准 OpenAI 兼容 API——「中转」指请求转发与账号调度，「运行时」指它本身就是可独立部署的服务进程。
 
 > [!IMPORTANT]
 > **项目进入低频维护（2026-10-23） / Low-frequency maintenance**
@@ -22,7 +24,7 @@
 This project is for protocol research and personal use only. Prefer the official client, do not use your primary account, and do not resell or share access.
 
 <p align="center">
-  <a href="https://github.com/ardeyouxipianyi/workbuddy2api-hub/releases"><img src="https://img.shields.io/badge/Release-v1.10.9-2496ED?style=flat-square" alt="Version 1.10.9"></a>
+  <a href="https://github.com/CRFH67I3/proxy-gateway-runtime/releases"><img src="https://img.shields.io/badge/Release-v1.10.9-2496ED?style=flat-square" alt="Version 1.10.9"></a>
   <img src="https://img.shields.io/badge/Python-3.9+-blue.svg?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/API-OpenAI_Compatible-412991?style=flat-square" alt="OpenAI API">
   <img src="https://img.shields.io/badge/Dual_Realm-Intl_&_CN-0DBD8B?style=flat-square" alt="Dual Realm">
@@ -33,7 +35,7 @@ This project is for protocol research and personal use only. Prefer the official
 ## 核心特性
 
 - **标准 API 兼容**：将 WorkBuddy（国际版/国内版）与 CodeArts 封装为标准 OpenAI 格式（Chat Completions / Responses），无缝支持 Codex、Claude Code、NextChat 等各类客户端。
-- **开箱即用与多端部署**：便携版免装环境（Windows 自带精简运行时），支持 Docker、NAS（群晖/飞牛）一键部署及 OpenWrt 路由器固件。
+- **移动端原生运行**：Android 与 iOS 外壳内嵌 CPython 直接托管同一份 `wb_*.py` 与面板，无需电脑、无需 Docker，装个 App 就是完整网关。
 - **多账号池与出口隔离**：支持浏览器 OAuth 快速导入、每账号独立出口代理槽绑定、设备指纹隔离、自动故障转移与配额轮转。
 - **自动化福利与签到**：内置国内版全套成长任务、加油站签到与猫猫旅行，支持国际版每日活跃会话与 CodeArts 自动签到。
 - **可视化管理看板**：提供 Web 仪表盘，支持实时请求日志、Token/积分透视、多 API Key 权限分发（模型/账号白名单）与额度护栏。
@@ -72,51 +74,14 @@ This project is for protocol research and personal use only. Prefer the official
   - **Web 看板**：`http://127.0.0.1:8788/`（默认访问密码 `admin`，首次登录请在设置中修改）
   - **API 地址**：`http://127.0.0.1:8788/v1`
 
-### 2. Docker 部署
-
-预编译多架构镜像发布在 GHCR，无需本地构建：
-
-**方式一：一键脚本（推荐）**
-
-```bash
-# 官方源（直连 GitHub 环境）：
-curl -fsSL https://raw.githubusercontent.com/ardeyouxipianyi/workbuddy2api-hub/main/quick-deploy.sh | bash
-
-# 国内网络 / NAS 加速：
-curl -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/ardeyouxipianyi/workbuddy2api-hub/main/quick-deploy.sh | sudo bash
-```
-
-> 公网部署或配合反向代理：在管道前指定 `WB_DEPLOY_MODE=public bash`，并搭配 Nginx / Caddy / Cloudflare Tunnel 配置 TLS。
-
-**方式二：单文件 Docker Compose**
-
-```yaml
-services:
-  wb-proxy:
-    image: ghcr.io/ardeyouxipianyi/workbuddy2api-hub:latest
-    container_name: wb-proxy
-    restart: unless-stopped
-    ports:
-      - "8788:8788"
-    environment:
-      - HOST=0.0.0.0
-      - PORT=8788
-      - TZ=Asia/Shanghai
-    volumes:
-      - ./accounts:/app/accounts    # 账号凭据与配置（持久化）
-      - ./usage:/app/usage          # 用量流水日志（持久化）
-```
-
-更新镜像：`docker compose pull && docker compose up -d`。
-
-### 3. CodeArts 原生第三出口
+### 2. CodeArts 原生第三出口
 
 网关内置进程内直连华为云 CodeArts，支持聊天 SSE 协议转换与自动签到，无需单独运行第三方桥接服务：
 1. 打开看板 →「设置 → CodeArts 接入」，勾选「启用 CodeArts 出口」并保存；
 2. 切换至看板顶部「CodeArts」视图，点击「+ 添加账号 (OAuth)」完成华为云授权；
 3. 在「设置 → API Key」中新建 Key 并绑定出口为 `CodeArts`（或全局通用）即可调用。
 
-### 4. 手机端（iOS / Android）
+### 3. 手机端（iOS / Android）
 
 网关本体是纯标准库 Python，因此手机端没有另写一套逻辑：**同一份 `wb_*.py` 与
 `dashboard.html` 原样打包进 App**，由原生外壳托管（Android 用 Chaquopy 内嵌
@@ -203,18 +168,18 @@ export ANTHROPIC_API_KEY="你在看板设置中添加并绑定的API_Key"
 
 | 部署形态 | 怎么让它可用 |
 |---|---|
-| Linux + systemd（`/opt/workbuddy2api-hub`，`wbproxy` 用户） | `sudo sh ops/aliyun/install-updater.sh` |
-| Docker / NAS 等自带 supervisor | `WB_UPDATE_INSTALL_ENABLED=1` + `WB_UPDATE_EXECUTOR=external`（或请求目录里放 `executor.json`），由部署侧的循环脚本消费 `/run/workbuddy2api-hub-updater/request.json` |
+| Linux + systemd（`/opt/proxy-gateway-runtime`，`wbproxy` 用户） | `sudo sh ops/aliyun/install-updater.sh` |
+| 自建 supervisor（systemd / 自带守护） | `WB_UPDATE_INSTALL_ENABLED=1` + `WB_UPDATE_EXECUTOR=external`（或请求目录里放 `executor.json`），由部署侧的循环脚本消费 `/run/proxy-gateway-runtime-updater/request.json` |
 | 便携包（release zip，含 `release-manifest.json` 与 `wb_update_apply.py`） | 无需安装，解压运行即自带 |
 | 手机 App（Android / iOS） | 不适用：代码由 App 外壳替换，用 App 菜单里的「自动更新」 |
 
-`install-updater.sh` 会安装 `workbuddy2api-hub-updater.path` / `.service`、创建
-`/run/workbuddy2api-hub-updater`（root 与 `wbproxy` 组可写）、并给网关的 systemd drop-in
+`install-updater.sh` 会安装 `proxy-gateway-runtime-updater.path` / `.service`、创建
+`/run/proxy-gateway-runtime-updater`（root 与 `wbproxy` 组可写）、并给网关的 systemd drop-in
 写入 `WB_UPDATE_INSTALL_ENABLED=1`；脚本自身带失败回滚与安装后健康检查。装完确认：
 
 ```bash
-systemctl status workbuddy2api-hub-updater.path   # Active: active (waiting)
-systemctl status workbuddy2api-hub-updater.service
+systemctl status proxy-gateway-runtime-updater.path   # Active: active (waiting)
+systemctl status proxy-gateway-runtime-updater.service
 ```
 
 装好之后，「安装更新」只做**手动**安装；「每天自动检查更新」默认关闭，且即使打开也只
@@ -245,7 +210,7 @@ python tests/run_all.py            # 全部套件
 python tests/run_all.py realm      # 只跑名字里含 realm 的
 ```
 
-- 268 个套件：204 个 Python + 64 个 JS；JS 需要 PATH 上有 `node`，缺失时会跳过并提示。
+- 267 个套件：203 个 Python + 64 个 JS；JS 需要 PATH 上有 `node`，缺失时会跳过并提示。
 - `tests/_mobile_check.py` 是独立的 Playwright 手机/桌面布局检查器（需自行安装 Playwright），按需手动运行，不在上面的套件集里。
 - CI（`.github/workflows/tests.yml`）跑同一条命令：Ubuntu 上 python 3.9 与 3.12（3.9 是本项目声称的最低版本），Windows 上 python 3.12；推送 `v*` tag 时额外断言 **tag == 源码版本**（`-ci` 演练 tag 豁免）。
 

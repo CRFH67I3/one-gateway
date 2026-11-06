@@ -32,7 +32,7 @@ import wb_settings
 
 # 默认仍指向官方仓库。自建 fork 的 systemd 服务可通过 WB_UPDATE_REPO 指定
 # 自己的 Release 源；该值只允许 owner/repo 形状，避免把更新请求导向任意主机。
-DEFAULT_REPOSITORY = "ardeyouxipianyi/workbuddy2api-hub"
+DEFAULT_REPOSITORY = "CRFH67I3/proxy-gateway-runtime"
 REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
 
 

@@ -18,7 +18,7 @@ set -eu
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SCRIPT_DIR/../../.." && pwd)
-RES="$ROOT/mobile/ios/WorkBuddyHub/Resources"
+RES="$ROOT/mobile/ios/ProxyGatewayRuntime/Resources"
 DEST_APP="$RES/app"
 DEST_PY="$RES/python"
 VENDOR="$ROOT/mobile/ios/Vendor/Python.xcframework"
@@ -33,7 +33,7 @@ rm -rf "$DEST_PY"/certifi "$DEST_PY"/certifi-*.dist-info
 cp "$ROOT"/wb_*.py "$DEST_APP"/
 cp "$ROOT/dashboard.html" "$DEST_APP"/
 cp "$ROOT/mobile/shared/wb_mobile_runtime.py" "$DEST_APP"/
-cp "$ROOT/mobile/ios/WorkBuddyHub/PythonBridge/wb_hub_ios.py" "$DEST_APP"/
+cp "$ROOT/mobile/ios/ProxyGatewayRuntime/PythonBridge/wb_hub_ios.py" "$DEST_APP"/
 
 # 交付前自检：核心与面板缺一不可，缺了直接让构建失败，别等运行时才报错。
 for required in wb_proxy.py dashboard.html wb_mobile_runtime.py wb_hub_ios.py; do

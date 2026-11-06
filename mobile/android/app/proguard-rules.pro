@@ -9,12 +9,12 @@
 
 -keep class com.chaquo.python.** { *; }
 
--keep class com.workbuddy2api.hub.HubApp { *; }
--keep class com.workbuddy2api.hub.MainActivity { *; }
--keep class com.workbuddy2api.hub.GatewayService { *; }
+-keep class com.proxygateway.runtime.HubApp { *; }
+-keep class com.proxygateway.runtime.MainActivity { *; }
+-keep class com.proxygateway.runtime.GatewayService { *; }
 
 # 让崩溃栈、日志里的类名与方法名保持原样（不参与改名，但仍可被裁剪）。
--keepnames class com.workbuddy2api.hub.**
+-keepnames class com.proxygateway.runtime.**
 
 # 网关是纯 Python（标准库），Python 侧不 import 任何 Java 类，
 # 所以不需要为「Python 调用 Java」额外保留什么；这里只关掉随之而来的警告。

@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ANDROID = os.path.join(ROOT, "mobile", "android")
-JAVA = os.path.join(ANDROID, "app", "src", "main", "java", "com", "workbuddy2api", "hub")
+JAVA = os.path.join(ANDROID, "app", "src", "main", "java", "com", "proxygateway", "runtime")
 PY_RUNTIME_DIR = os.path.join(ANDROID, "app", "src", "main", "python")
 
 sys.path.insert(0, PY_RUNTIME_DIR)
@@ -41,7 +41,7 @@ import wb_hub_env  # noqa: E402
 
 PRIMARY_URL = (
     "https://v4.gh-proxy.org/https://github.com/"
-    "ardeyouxipianyi/workbuddy2api-hub/archive/refs/heads/main.zip"
+    "CRFH67I3/proxy-gateway-runtime/archive/refs/heads/main.zip"
 )
 
 
@@ -50,7 +50,7 @@ def read(path):
         return fh.read()
 
 
-def make_archive(zip_path, entries, outer="workbuddy2api-hub-main"):
+def make_archive(zip_path, entries, outer="proxy-gateway-runtime-main"):
     """造一份和 GitHub `archive/refs/heads/main.zip` 同构的包。
 
     真包的每个条目都带 `repo-main/` 前缀，这一层是导入逻辑最容易踩空的地方，
@@ -98,7 +98,7 @@ class ShellWiringTests(unittest.TestCase):
 
     def test_primary_url_is_the_mirror_the_user_asked_for(self):
         self.assertIn("v4.gh-proxy.org", self.bridge)
-        self.assertIn("ardeyouxipianyi/workbuddy2api-hub", self.bridge)
+        self.assertIn("CRFH67I3/proxy-gateway-runtime", self.bridge)
         self.assertIn("refs/heads/$BRANCH", self.bridge)
         # 首选必须是镜像，直连只能是兜底（国内直连 archive 基本超时）。
         urls = re.search(r"PROJECT_ZIP_URLS[\s\S]{0,600}?\)\n", self.bridge)
@@ -318,9 +318,9 @@ class BuildVariantTests(unittest.TestCase):
         self.assertIn("-keep class com.chaquo.python.** { *; }", self.rules)
         # 清单里的三个组件由系统按类名实例化
         for cls in ("HubApp", "MainActivity", "GatewayService"):
-            self.assertIn("com.workbuddy2api.hub.%s { *; }" % cls, self.rules)
+            self.assertIn("com.proxygateway.runtime.%s { *; }" % cls, self.rules)
         # 外壳其余类只保名字：不能再用「整包 { *; }」把最小化废掉
-        self.assertNotIn("-keep class com.workbuddy2api.hub.** { *; }", self.rules)
+        self.assertNotIn("-keep class com.proxygateway.runtime.** { *; }", self.rules)
 
     def test_workflow_builds_both_variants(self):
         self.assertIn(":app:assembleDebug", self.workflow)
@@ -338,7 +338,7 @@ class InstallContractTests(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def _install(self, entries, outer="workbuddy2api-hub-main"):
+    def _install(self, entries, outer="proxy-gateway-runtime-main"):
         make_archive(self.zip, entries, outer)
         return wb_hub_env.install(self.zip, self.projects)
 
@@ -351,7 +351,7 @@ class InstallContractTests(unittest.TestCase):
         self.assertTrue(result["ok"], result)
         self.assertEqual(result["version"], "9.9.9")
         self.assertTrue(result["has_panel"])
-        self.assertTrue(result["root"].endswith("workbuddy2api-hub-main"))
+        self.assertTrue(result["root"].endswith("proxy-gateway-runtime-main"))
         self.assertEqual(result["files_extracted"], 3)
         # 解压到 projects/<时间戳>/，不是 projects/ 本身
         self.assertTrue(result["dest"].startswith(self.projects))
@@ -522,7 +522,7 @@ class LiveDownloadTests(unittest.TestCase):
         tmp = tempfile.mkdtemp(prefix="wb-live-")
         try:
             request = urllib.request.Request(
-                PRIMARY_URL, headers={"User-Agent": "WorkBuddyHub-Android"})
+                PRIMARY_URL, headers={"User-Agent": "ProxyGatewayRuntime-Android"})
             with urllib.request.urlopen(request, timeout=60) as response:
                 body = response.read()
             self.assertGreater(len(body), 100 * 1024, "下载内容太小，可能是错误页")

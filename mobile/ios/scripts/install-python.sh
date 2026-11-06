@@ -98,7 +98,7 @@ for so in "$DYNLOAD"/*.so; do
             cp "$VENDOR/build/iOS-dylib-Info-template.plist" "$fw/Info.plist"
             plutil -replace CFBundleExecutable -string "$module" "$fw/Info.plist"
             plutil -replace CFBundleIdentifier \
-                -string "$(printf '%s.%s' "${PRODUCT_BUNDLE_IDENTIFIER:-com.workbuddy2api.hub}" "$module" | tr '_' '-')" \
+                -string "$(printf '%s.%s' "${PRODUCT_BUNDLE_IDENTIFIER:-com.proxygateway.runtime}" "$module" | tr '_' '-')" \
                 "$fw/Info.plist"
         else
             cat > "$fw/Info.plist" <<PLIST
@@ -108,7 +108,7 @@ for so in "$DYNLOAD"/*.so; do
 <dict>
 	<key>CFBundleDevelopmentRegion</key><string>en</string>
 	<key>CFBundleExecutable</key><string>$module</string>
-	<key>CFBundleIdentifier</key><string>com.workbuddy2api.hub.$module</string>
+	<key>CFBundleIdentifier</key><string>com.proxygateway.runtime.$module</string>
 	<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
 	<key>CFBundlePackageType</key><string>APPL</string>
 	<key>CFBundleShortVersionString</key><string>1.0</string>

@@ -42,7 +42,7 @@ dist/
 wrt/ipk/
 wrt/apk/
 # build-apk.sh 把 wb_*.py 暂存进包目录再拷给 SDK，这是构建中间产物
-wrt/openwrt/workbuddy2api/files/usr/lib/
+wrt/openwrt/proxygateway/files/usr/lib/
 
 # 项目隔离测试环境
 .venv/
@@ -64,8 +64,6 @@ desktop.ini
 .codebuddy/
 .workbuddy/
 
-# Local Docker Compose override
-docker-compose.override.yml
 
 # ---- 移动端（iOS / Android）----
 # Android 已是「容器模式」：APK 只带 CPython 运行时，网关源码由用户导入 ZIP 提供，
@@ -73,10 +71,10 @@ docker-compose.override.yml
 # （tests/_test_android_container_purity.py 会直接判红）。
 mobile/android/app/src/main/assets/core/
 # iOS 包内资源：app/ 是核心代码，python/ 是 CPython 标准库，均由 sync-core.sh 生成。
-mobile/ios/WorkBuddyHub/Resources/app/*
-!mobile/ios/WorkBuddyHub/Resources/app/.gitkeep
-mobile/ios/WorkBuddyHub/Resources/python/*
-!mobile/ios/WorkBuddyHub/Resources/python/.gitkeep
+mobile/ios/ProxyGatewayRuntime/Resources/app/*
+!mobile/ios/ProxyGatewayRuntime/Resources/app/.gitkeep
+mobile/ios/ProxyGatewayRuntime/Resources/python/*
+!mobile/ios/ProxyGatewayRuntime/Resources/python/.gitkeep
 # Android 构建输出与本地 SDK 配置
 mobile/android/.gradle/
 mobile/android/build/

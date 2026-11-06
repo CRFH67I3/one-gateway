@@ -258,7 +258,6 @@ class ManifestTests(unittest.TestCase):
         #285 的教训：portable.txt 里 start-wb-proxy-lan.bat 被 restart-wb-proxy.bat
         顶掉了，而新脚本恰恰要调用它——便携包少了这个文件，Windows 的 LAN 启动与
         重启都会失败。上面那份手写清单只点了 .sh 的名，所以没拦住。
-        quick-deploy.sh 是 Docker 路径、刻意不进便携包，不在前缀里。
         """
         listed = tools.read_manifest()
         for prefix in ("start-wb-proxy", "restart-wb-proxy", "allow-firewall"):
@@ -293,8 +292,7 @@ class ManifestTests(unittest.TestCase):
 
     def test_development_only_files_stay_out(self):
         listed = tools.read_manifest()
-        for name in ("Dockerfile", "docker-compose.yml", "quick-deploy.sh",
-                     "tests/run_all.py"):
+        for name in ("tests/run_all.py",):
             self.assertNotIn(name, listed)
 
 
@@ -503,9 +501,9 @@ class PortableZipTests(unittest.TestCase):
 class ChecksumTests(unittest.TestCase):
     def test_covers_every_asset_once_in_sha256sum_format(self):
         with tempfile.TemporaryDirectory(prefix="relsum-") as directory:
-            names = ["workbuddy2api-hub-v1.6.17.zip",
-                     "workbuddy2api_1.6.17-1_all.ipk",
-                     "workbuddy2api-1.6.17-r1.apk"]
+            names = ["proxy-gateway-runtime-v1.6.17.zip",
+                     "proxygateway_1.6.17-1_all.ipk",
+                     "proxygateway-1.6.17-r1.apk"]
             assets = []
             for i, name in enumerate(names):
                 p = os.path.join(directory, name)
@@ -543,9 +541,9 @@ class ReleaseBodyTests(unittest.TestCase):
     def test_first_compose_has_the_marker_and_the_fixed_block(self):
         body = tools.compose_body("", self.block)
         self.assertIn(tools.MARKER, body)
-        for expected in ("## 下载说明", "workbuddy2api-hub-v1.6.17.zip",
-                         "workbuddy2api_1.6.17-1_all.ipk",
-                         "workbuddy2api-1.6.17-r1.apk", "SHA256SUMS"):
+        for expected in ("## 下载说明", "proxy-gateway-runtime-v1.6.17.zip",
+                         "proxygateway_1.6.17-1_all.ipk",
+                         "proxygateway-1.6.17-r1.apk", "SHA256SUMS"):
             self.assertIn(expected, body)
 
     def test_maintainer_notes_above_the_marker_survive(self):
@@ -687,7 +685,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("server_version", self.text)
         self.assertIn('"version"', self.text)
         self.assertIn("TAGVER", self.text)
-        self.assertIn("wrt/openwrt/workbuddy2api/Makefile", self.text)
+        self.assertIn("wrt/openwrt/proxygateway/Makefile", self.text)
 
     def test_uses_the_manifest_tooling(self):
         self.assertIn("release/release_tools.py", self.text)

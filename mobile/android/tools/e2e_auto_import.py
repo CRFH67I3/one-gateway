@@ -31,7 +31,7 @@ import time
 import urllib.error
 import urllib.request
 
-PKG = "com.workbuddy2api.hub"
+PKG = "com.proxygateway.runtime"
 ACTIVITY = "%s/.MainActivity" % PKG
 OVERLAY_MANUAL = "手动更新（选择压缩包）"
 OVERLAY_AUTO = "自动更新（联网下载）"

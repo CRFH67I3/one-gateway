@@ -24,7 +24,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ANDROID = os.path.join(ROOT, "mobile", "android")
 APP_GRADLE = os.path.join(ANDROID, "app", "build.gradle.kts")
 MANIFEST = os.path.join(ANDROID, "app", "src", "main", "AndroidManifest.xml")
-JAVA = os.path.join(ANDROID, "app", "src", "main", "java", "com", "workbuddy2api", "hub")
+JAVA = os.path.join(ANDROID, "app", "src", "main", "java", "com", "proxygateway", "runtime")
 README = os.path.join(ROOT, "mobile", "README.md")
 
 MIN_SDK = 26

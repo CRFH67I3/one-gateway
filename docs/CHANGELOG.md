@@ -1,3 +1,21 @@
+## 未发布 / Unreleased
+
+### 更名：WorkBuddy2API-Hub → Proxy Gateway Runtime（中转网关运行时）
+
+项目与仓库统一改名，功能与协议行为不变：
+
+- **名称**：中文「中转网关运行时」，英文「Proxy Gateway Runtime」。代码模块前缀 `wb_`、
+  环境变量 `WB_*`、可执行入口 `wb_proxy.py` 全部保留，升级不需要迁移配置。
+- **仓库**：`CRFH67I3/workbuddy2api-hub` → `CRFH67I3/proxy-gateway-runtime`（旧地址由
+  GitHub 自动重定向）。更新检查与手机端的默认下载源同步指向新仓库，自建部署仍可用
+  `WB_UPDATE_REPO` 指回任意 fork。
+- **产物**：发布包改名 `proxy-gateway-runtime-v<版本>.zip`；systemd 单元改名
+  `proxy-gateway-runtime-updater.{path,service}`，请求/状态目录改为
+  `/run/proxy-gateway-runtime-updater`；OpenWrt 包名 `proxygateway`。
+- **移动端**：Android `applicationId` 与 iOS bundle id 改为 `com.proxygateway.runtime`，
+  显示名「中转网关」。**已装旧包的设备需卸载重装**，旧包不会再收到新版本。
+- **面板**：标题与侧栏品牌改为 Proxy Gateway Runtime，仓库入口指向新地址。
+
 ## v1.10.9
 
 - **面板布局与主题**：默认使用控制台布局和 Alibaba 配色，保留浏览器已有偏好；支持经典布局以及可选的新导航布局，后者提供桌面侧栏、移动端导航与分组设置（#725、#764、#765）。
@@ -177,7 +195,7 @@ CodeArts 工具归一化与空函数修复（#750 / #752）、配置并发安全
 
 - **更新检查超时放宽到 10 秒**（#640）：Releases API 受限时，回退下载路径在代理出口实测需要 4.2～10 秒；旧的 5 秒上限会把本可成功的回退一起掐掉。现在两条路径各有 10 秒，失败仍按每日节流重试，不会挂住面板。
 - **stderr 日志通道不再阻塞请求线程**（#642）：请求线程只向 2000 行有界队列 `put_nowait()`，由单个守护线程负责真正写入；队列满时丢行并计数，首次和每 1000 行写一条 WARN 到看板日志。退出路径用 0.5 秒超时刷队列，`sys.stderr is None`（pythonw）直接跳过。日志内容、脱敏与看板顺序不变。
-- **桌面 chat 可选协议一致性**（#643）：设置进程环境 `WB_DESKTOP_CHAT_COMPAT=1` 后重启，仅桌面产品的 chat 去掉浏览器请求头，补齐 SDK runtime 元数据与 B3 parent span。默认关闭；CLI、VSCode、计费 REST、请求体、设备 token 与退避逻辑不变。参考 workbuddy2api-panel 的桌面报文对照，未独立复核原始抓包，不构成 TLS 指纹模拟或免封保证。
+- **桌面 chat 可选协议一致性**（#643）：设置进程环境 `WB_DESKTOP_CHAT_COMPAT=1` 后重启，仅桌面产品的 chat 去掉浏览器请求头，补齐 SDK runtime 元数据与 B3 parent span。默认关闭；CLI、VSCode、计费 REST、请求体、设备 token 与退避逻辑不变。参考 proxygateway-panel 的桌面报文对照，未独立复核原始抓包，不构成 TLS 指纹模拟或免封保证。
 - **国际版每日活跃证书失败降级**（#645 / #647）：ACP 沙箱域名由 EdgeOne 下发 `*.cdn.myqcloud.com` 通配证书，Python ssl 必然报 Hostname mismatch。国际版现在也能按 `www.workbuddy.ai` 调用 `POST /v2/report`，连登查询同样按账号出口选 base；设置页新增「证书失败改走活跃上报」，**默认关闭**。仅证书类错误可降级，沙箱未就绪、轮次超时、业务拒绝仍如实失败；回退上报被拒时保留当天未完成状态供下轮重试。
 - **补记 v1.7.31 发布内容**：恢复 `model_aliases` 映射并避免后台模型改写误伤显式选择（#617 / #619）；收窄 CN 专属模型判定（#618）；OpenCode 一键配置写入真实 `limit.context` / `limit.output`（#625）；Chat / Responses / Anthropic Messages 三条流式路径在真实静默期发送 SSE 心跳（#578）。
 
@@ -282,7 +300,7 @@ CodeArts 工具归一化与空函数修复（#750 / #752）、配置并发安全
 Windows 便携版支持面板一键更新（#560）：不再要求 systemd unit；面板检测到新版本后，由独立 helper 下载 zip、校验 SHA256SUMS、停服、按 `release-manifest.json` 替换受管文件、重启，失败自动回滚。套件 205 个（153 Python + 52 JS）。
 
 - **便携版一键更新**（#560）：新增 `wb_update_portable.py` 与 `wb_update_apply.py`。`install_enabled()` 在便携包（存在 `release-manifest.json`、`wb_update_apply.py`、`python/python.exe`）里返回 true，面板按钮不再因缺少 systemd unit 而禁用。
-- **更新流程**：下载 `workbuddy2api-hub-vX.Y.Z.zip` 和 `SHA256SUMS` → 校验 → 解包（拒绝 `..` / 绝对路径 / 符号链接）→ 校验 manifest 与 `wb_proxy.py` 版本 → 备份受管文件 → 停止网关 → 替换 → 按原启动模式（静默 / 可见 / LAN）重启 → 轮询 `/health`；失败时恢复备份并重启旧版本。
+- **更新流程**：下载 `proxy-gateway-runtime-vX.Y.Z.zip` 和 `SHA256SUMS` → 校验 → 解包（拒绝 `..` / 绝对路径 / 符号链接）→ 校验 manifest 与 `wb_proxy.py` 版本 → 备份受管文件 → 停止网关 → 替换 → 按原启动模式（静默 / 可见 / LAN）重启 → 轮询 `/health`；失败时恢复备份并重启旧版本。
 - **边界**：只替换 `release-manifest.json` 的 `files`，`accounts/`、`usage/` 等受保护目录不动；不替换内置 `python/` 运行时（运行时升级仍需手动覆盖）；状态写入 `updates/status.json`，面板沿用现有轮询。
 - **测试**：新增 `tests/_test_portable_update.py`（10 项），覆盖 URL / 校验、路径穿越、版本校验、备份 / 替换 / 回滚、helper 启动参数与 bridge 状态；`release/portable.txt` 已加入两个新模块，运行时契约补 `posixpath` / `signal` / `zipfile`。
 
@@ -438,7 +456,7 @@ Windows 便携包补一个可选的前台窗口启动入口：默认仍是静默
   `createCustomFetch` 压缩），本版启用；非企业号没有真实设备 token 时按官方
   失败态发 `X-Device-Token-Error: sdk_not_initialized`（不伪造 token）。
 - **阿里云 systemd 部署支持手动安装稳定版**：设置页可从配置的 fork Release 安装新版本；更新包必须通过 `SHA256SUMS` 与 `release-manifest.json` 校验，账号与用量目录列为保护路径。网关只提交版本号，root-owned systemd 更新服务负责备份、替换、重启与健康检查；失败会恢复程序文件。每日检查仍默认关闭，打开后也只检查、不自动安装。
-- **风控限制 403（code 11140）不再换号连坐：默认停手、限制持久化、整池暂停**（#422、#425）：上游对国际版账号的风控在 2026-10-15/16 之后明显收紧，账号级限制的正文是 `403 {"code":11140,"msg":"request illegal","displayMsg":"账号存在异常行为，已被限制使用"}`；社区复盘（[Zhengyuuuui/workbuddy2api](https://github.com/Zhengyuuuui/workbuddy2api/blob/main/doc/incident-postmortem-and-hardening-checklist.md)）给出的处置红线是「看到 11140 立即停手，解封前严禁换号继续打同一设备——设备指纹会连坐」。旧实现在 11140 上冷却该号后立刻换下一个号继续同一请求，一个请求最多遍历整个池子（#422 用户实测 7 个号在一次任务里全被封），而且冷却只存在内存里，重启 / 刷新 token / 「一键测试」都会把它清掉。现在：
+- **风控限制 403（code 11140）不再换号连坐：默认停手、限制持久化、整池暂停**（#422、#425）：上游对国际版账号的风控在 2026-10-15/16 之后明显收紧，账号级限制的正文是 `403 {"code":11140,"msg":"request illegal","displayMsg":"账号存在异常行为，已被限制使用"}`；社区复盘（[Zhengyuuuui/proxygateway](https://github.com/Zhengyuuuui/proxygateway/blob/main/doc/incident-postmortem-and-hardening-checklist.md)）给出的处置红线是「看到 11140 立即停手，解封前严禁换号继续打同一设备——设备指纹会连坐」。旧实现在 11140 上冷却该号后立刻换下一个号继续同一请求，一个请求最多遍历整个池子（#422 用户实测 7 个号在一次任务里全被封），而且冷却只存在内存里，重启 / 刷新 token / 「一键测试」都会把它清掉。现在：
   - **默认不再跨号重试**：第一个账号被限制就停手，把原因交给客户端，下一次请求自然落到别的账号；需要旧行为时设 `WB_RESTRICTED_403_ROTATE_MAX`（默认 0）。
   - **限制期限持久化**：账号档案新增 `restrictedUntil`（2 小时），重启 / 换身分 / 刷新凭证 / 一键测试都不再把它放回池子；只有真正成功一次（说明上游已解除）才清。
   - **整池连坐暂停**：同一区域在 `WB_RESTRICTION_WAVE_WINDOW`（默认 900 秒）内被限制 `WB_RESTRICTION_WAVE_MIN`（默认 2）个账号，就暂停该区域派发 `WB_RESTRICTION_HOLD_SECONDS`（默认 1800 秒），期间一个上游请求都不发、直接返回 429 与申诉指引；设 `WB_RESTRICTION_HOLD_SECONDS=0` 关闭暂停。
@@ -697,7 +715,7 @@ Windows 便携包补一个可选的前台窗口启动入口：默认仍是静默
 
 - **国内版自动连续打卡（对话活跃上报点亮连登）**：国内版每日签到只能领积分但无法推进官方成长中心的「连登天数」（官方只认真实会话行为上报）。现将国内版对话活跃上报接入调度器：每日定时（09:00/21:00）为国内版账号上报规范会话事件（复刻客户端 `chat_request_send`，严格携带 `userId` 并保持每号每天 1 次防风控口径），点亮成长中心连续打卡天数与热力墙；上报后只读查询并回显连登天数，同时持久化记录 `lastActivityReport` 避免重复调用；新增测试套件 `tests/_test_streak_report.py`（10 项）。
 
-- **国内版连登管家与企业版门控**（口径参考 [linguo2625469/workbuddy2api-panel](https://github.com/linguo2625469/workbuddy2api-panel)）：把连登这一整套接进调度器——昨日漏签且有补签卡时自动补签（保连登）、7d/14d/28d 档位解锁即自动兑换（积分 / 能量 / 补签卡 / 抽奖次数）、有抽奖次数自动抽完，全程幂等（未解锁 / 已领过 / 没有次数都静默跳过）；同时按上游实测把企业版账号从成长体系里摘出去——企业号没有个人成长体系（`/activity/growth/*` 一律 403、签到 400 `code 10001`），签到 / 活跃上报 / 猫猫旅行 / 夜猫子 / 连登管家五类调用一律跳过，面板也不再给它渲染可签到标记；顺带补上新手礼包与活动补偿的领取（`claim-gift` / `claim-compensation`，每号一次、已领静默跳过）。
+- **国内版连登管家与企业版门控**（口径参考 [linguo2625469/proxygateway-panel](https://github.com/linguo2625469/proxygateway-panel)）：把连登这一整套接进调度器——昨日漏签且有补签卡时自动补签（保连登）、7d/14d/28d 档位解锁即自动兑换（积分 / 能量 / 补签卡 / 抽奖次数）、有抽奖次数自动抽完，全程幂等（未解锁 / 已领过 / 没有次数都静默跳过）；同时按上游实测把企业版账号从成长体系里摘出去——企业号没有个人成长体系（`/activity/growth/*` 一律 403、签到 400 `code 10001`），签到 / 活跃上报 / 猫猫旅行 / 夜猫子 / 连登管家五类调用一律跳过，面板也不再给它渲染可签到标记；顺带补上新手礼包与活动补偿的领取（`claim-gift` / `claim-compensation`，每号一次、已领静默跳过）。
 
 - **小响应不再白付 40ms、突发并发不再卡 1 秒**（[PR #237](https://github.com/ardeyouxipianyi/workbuddy2api-hub/pull/237)，感谢 [@aodianjun](https://github.com/aodianjun)）：服务端关掉 Nagle（响应头与响应体两次 write 不再互相等 ACK，werkzeug/uvicorn 同做法），listen backlog 从 stdlib 默认的 5 提到 128（面板打开一页就是 ~7 个并发）。真机（OpenWrt / Celeron N2840）：`/health` 中位 50.0ms → 1.41ms，64 并发突发「卡 ≥1s」43/64 → 0/64。顺带把单请求体上限默认从 50MB 收到 16MB（`WB_MAX_PAYLOAD_BYTES` 可调回）——读 body 发生在 chat 信号量之前，路由器上几个并发大 body 就能把内存打穿。
 
@@ -756,7 +774,7 @@ Windows 便携包补一个可选的前台窗口启动入口：默认仍是静默
 
 - **面板隐藏「网页通道打卡 (国际版)」按钮**：网页通道那一步已经由设置里的「国际版每日活跃打卡」自动带在「每日活跃打卡」里，单独那个按钮不再上屏（手动补跑走 `/accounts/daily-chat-web`）。按钮元素留在 DOM 里但始终 `display:none`，要放回面板时去掉它并恢复 `updateUI()` 里的按视图显隐即可。
 
-- **tag 触发的发布打包与 Draft Release（issue #28）**：`v*` tag 现在由 `.github/workflows/release.yml` 一条链路走完——校验 tag / `wb_proxy.py` / `wrt` 包 Makefile 三处版本一致，拿到**完整测试矩阵**（Ubuntu 3.9 + Ubuntu 3.12 + Windows 3.12，腿名从 `tests.yml` 读出来逐条核对）后，构建便携 ZIP、OpenWrt `.ipk` 与 `.apk`，按最终资产生成 `SHA256SUMS`，最后创建或更新 **Draft Release**。工作流永不 publish，最后一步还会断言它仍是 draft。便携 ZIP 是**绿色包**：在 `windows-latest` 上按「既有线上包那份运行时的文件集合」裁剪钉死并校验 sha256 的上游 CPython 3.12 运行时（527 个文件），打进 `wb-proxy/python/`，然后用包内解释器**真的启动一次网关并探通 `/health`**，所以资产不是被换了名字的源码包。包内 `release-manifest.json` 记录版本、`root`、`python/` 运行时子树与受保护目录 `accounts/`、`usage/`，作为自更新（#29）的消费契约；`release/portable.txt` 的显式清单同时补上了 `pricing/pricing.json` 这类运行时数据（`wb_pricing._candidate_file()` 优先读它）。OpenWrt 配方来自 #190 引用的 `aodianjun/workbuddy2api-hub/wrt/`，审计后并入：保留 `.ipk`/`.apk` 两个打包脚本、包 Makefile、init.d、uci 配置与面板缓存预热器；去掉 fork 专属的 GitHub 自更新器（`workbuddy2api-update` 及其 cron、`auto_update` 选项——OpenWrt 升级走包管理器）、fork 的工作流激活脚本与上游同步工作流，以及钉死上游 commit 的 `PIN_SHA`/`PIN_VER`（配方进了上游仓库后"从 GitHub 拉另一个 commit 的上游源码"没有意义，版本改为取自当前检出）。`-ci` 演练 tag 走完全相同的打包与 draft 流程，只是额外标成 prerelease。**只有 `v*` tag 推送能写 release**：`workflow_dispatch` 是 packaging-only，写入点单独放在一个 `if:` 为「事件是 push 且 ref 是 `refs/tags/v*`」的 job 里，手动运行的任何输入组合都够不到它（因此手动运行也不再有 `dry_run` 开关）。新增 `tests/_test_release_assets.py`（60 项）：清单覆盖每个 `wb_*.py` 与 `pricing/pricing.json`、清单路径都存在且不含受保护目录、运行时裁剪规则与启动契约（缺 `python.exe`／混进 `Lib/multiprocessing`／残留 `.pdb` 都必须被拒）、ZIP 结构（`wb-proxy/` + `python/` + 标记文件）与"不是源码包"、重建逐字节相同、`SHA256SUMS` 覆盖每个资产且随字节变化、正文重写幂等且保留维护者写在标记之上的说明、矩阵腿名确实来自 `tests.yml`（删一条腿就会少一条要求）、工作流必须 `--draft`、便携资产必须在 Windows 上打包并启动、任何写 release 的路径都必须拿到完整矩阵，以及**「只有 tag 推送能到写入点」这条不变量本身**。后者配了一张命令形态表：`gh release create/edit/upload/delete`、显式 `-X/--method POST|PATCH|PUT|DELETE`、以及**靠 `-f`/`-F`/`--field`/`--raw-field`/`--input` 触发隐式 POST 的 `gh api`** 都算写，显式 `-X GET`/`--method GET` 与 `echo` 出来的命令不算；扫描前先归一化 `\` 续行，并按 `&&`/`||`/`;` 切分，所以被拆开的命令也跑不掉。变异测试常驻：把写入点搬到 dispatch 路径、塞进别的 job、改成单行 `run:`、用隐式 POST 的 `gh api` 建 release、给 `workflow_dispatch` 加一个可能授权写入的输入、或抹掉全部写入点，检查器都必须判红。
+- **tag 触发的发布打包与 Draft Release（issue #28）**：`v*` tag 现在由 `.github/workflows/release.yml` 一条链路走完——校验 tag / `wb_proxy.py` / `wrt` 包 Makefile 三处版本一致，拿到**完整测试矩阵**（Ubuntu 3.9 + Ubuntu 3.12 + Windows 3.12，腿名从 `tests.yml` 读出来逐条核对）后，构建便携 ZIP、OpenWrt `.ipk` 与 `.apk`，按最终资产生成 `SHA256SUMS`，最后创建或更新 **Draft Release**。工作流永不 publish，最后一步还会断言它仍是 draft。便携 ZIP 是**绿色包**：在 `windows-latest` 上按「既有线上包那份运行时的文件集合」裁剪钉死并校验 sha256 的上游 CPython 3.12 运行时（527 个文件），打进 `wb-proxy/python/`，然后用包内解释器**真的启动一次网关并探通 `/health`**，所以资产不是被换了名字的源码包。包内 `release-manifest.json` 记录版本、`root`、`python/` 运行时子树与受保护目录 `accounts/`、`usage/`，作为自更新（#29）的消费契约；`release/portable.txt` 的显式清单同时补上了 `pricing/pricing.json` 这类运行时数据（`wb_pricing._candidate_file()` 优先读它）。OpenWrt 配方来自 #190 引用的 `aodianjun/proxy-gateway-runtime/wrt/`，审计后并入：保留 `.ipk`/`.apk` 两个打包脚本、包 Makefile、init.d、uci 配置与面板缓存预热器；去掉 fork 专属的 GitHub 自更新器（`proxygateway-update` 及其 cron、`auto_update` 选项——OpenWrt 升级走包管理器）、fork 的工作流激活脚本与上游同步工作流，以及钉死上游 commit 的 `PIN_SHA`/`PIN_VER`（配方进了上游仓库后"从 GitHub 拉另一个 commit 的上游源码"没有意义，版本改为取自当前检出）。`-ci` 演练 tag 走完全相同的打包与 draft 流程，只是额外标成 prerelease。**只有 `v*` tag 推送能写 release**：`workflow_dispatch` 是 packaging-only，写入点单独放在一个 `if:` 为「事件是 push 且 ref 是 `refs/tags/v*`」的 job 里，手动运行的任何输入组合都够不到它（因此手动运行也不再有 `dry_run` 开关）。新增 `tests/_test_release_assets.py`（60 项）：清单覆盖每个 `wb_*.py` 与 `pricing/pricing.json`、清单路径都存在且不含受保护目录、运行时裁剪规则与启动契约（缺 `python.exe`／混进 `Lib/multiprocessing`／残留 `.pdb` 都必须被拒）、ZIP 结构（`wb-proxy/` + `python/` + 标记文件）与"不是源码包"、重建逐字节相同、`SHA256SUMS` 覆盖每个资产且随字节变化、正文重写幂等且保留维护者写在标记之上的说明、矩阵腿名确实来自 `tests.yml`（删一条腿就会少一条要求）、工作流必须 `--draft`、便携资产必须在 Windows 上打包并启动、任何写 release 的路径都必须拿到完整矩阵，以及**「只有 tag 推送能到写入点」这条不变量本身**。后者配了一张命令形态表：`gh release create/edit/upload/delete`、显式 `-X/--method POST|PATCH|PUT|DELETE`、以及**靠 `-f`/`-F`/`--field`/`--raw-field`/`--input` 触发隐式 POST 的 `gh api`** 都算写，显式 `-X GET`/`--method GET` 与 `echo` 出来的命令不算；扫描前先归一化 `\` 续行，并按 `&&`/`||`/`;` 切分，所以被拆开的命令也跑不掉。变异测试常驻：把写入点搬到 dispatch 路径、塞进别的 job、改成单行 `run:`、用隐式 POST 的 `gh api` 建 release、给 `workflow_dispatch` 加一个可能授权写入的输入、或抹掉全部写入点，检查器都必须判红。
 
 ## v1.6.18
 
@@ -765,7 +783,7 @@ Windows 便携包补一个可选的前台窗口启动入口：默认仍是静默
 - **侧栏区块导航回归**：每个主页面左侧恢复「本页导航」——导航项按页面内的 section 现场生成、滚动自动高亮、点击把锚点写进地址栏；新增「回到顶部」与可收起（收起状态存 localStorage，窄屏下自动变横向胶囊行），#169 把首行撑高的布局缺陷一并修掉（页面内容包一层 `.page-nav-body`，区块间距回到 20px）；
 - **账号区可折叠**（[PR #201](https://github.com/ardeyouxipianyi/workbuddy2api-hub/pull/201)、[PR #226](https://github.com/ardeyouxipianyi/workbuddy2api-hub/pull/226)，感谢 [@teddyli18000](https://github.com/teddyli18000)，issue #176）：「账号列表」标题旁的小三角把整块账号区收起，选择存在服务端（`accounts_collapsed`），换浏览器、重启服务都记得，账号轮询照常跑；
 - **数据看板 KPI 拆分与双币金额**：六张卡拆成八张——「平均首字延迟」从生成速度卡里独立出来（耗时留在速度卡），「请求数 & 成功率」拆成两张（成功率按有无失败染绿/琥珀）；「API 等价花费」不再挂货币切换按钮，改成与网关页一致的 `￥0.197 / $0.028`（人民币红、美元绿）；去掉「当前为『全部历史』视图，两张卡片口径相同」那句提示；
-- **页签与区块改名**：页签「网关与运维 → 网关与账号」「数据指标看板 → 数据看板」，标题「WorkBuddy 网关看板 → WorkBuddy 网关」；设置页区块「API Key 与出口绑定 → API Key」「代理槽 → 账号代理槽」「限额 → 账号限额」「OpenRouter 价估算 → 模型价格估算」「429 自动切换出站身分 → 自动切换出站身份」「本地网络工具 (web_search / web_fetch) → 本地网络工具」；网关页「账号 → 账号列表」「当前禁用账号与模型 → 当前禁用」「当前版本模型库与能力清单 → 网关模型清单」。导航项由区块 h2 现场生成，侧栏与页内小标题两处同步；
+- **页签与区块改名**：页签「网关与运维 → 网关与账号」「数据指标看板 → 数据看板」，标题「中转网关看板 → 中转网关」；设置页区块「API Key 与出口绑定 → API Key」「代理槽 → 账号代理槽」「限额 → 账号限额」「OpenRouter 价估算 → 模型价格估算」「429 自动切换出站身分 → 自动切换出站身份」「本地网络工具 (web_search / web_fetch) → 本地网络工具」；网关页「账号 → 账号列表」「当前禁用账号与模型 → 当前禁用」「当前版本模型库与能力清单 → 网关模型清单」。导航项由区块 h2 现场生成，侧栏与页内小标题两处同步；
 - **网关页用量卡片标出区域**：`网关调用量` / `估算价格` / `请求成功率` 的数字本来就按当前视图区域取（`/usage` 等接口带 `realm`），标题补上「（国际版）/（国内版）」跟着区域卡片切换；
 - **正體中文（台灣）介面**（[PR #204](https://github.com/ardeyouxipianyi/workbuddy2api-hub/pull/204)，感谢 [@Cekxri](https://github.com/Cekxri)）：看板語言從「简体中文 ⇄ English」擴充為三態循環「简 → 繁 → English」。正體中文以 OpenCC 台灣用語轉換（軟體、網路、記憶體、預設、登入、帳號…），切回簡中時還原原文。語言偏好採三層優先序：URL `?lang=` > 瀏覽器 `localStorage` 覆蓋 > 實例預設值；网关设置里可保存實例預設語言，右上角按钮只覆蓋当前浏览器。新增 `tests/_test_i18n_traditional.js`（39 项）与 `tests/_test_ui_language.py`（13 项）；
 - **智能体配置页**（[PR #219](https://github.com/ardeyouxipianyi/workbuddy2api-hub/pull/219)，感谢 [@2xz7vmvpv4-art](https://github.com/2xz7vmvpv4-art)）：探测本机已装的 Claude Code / Codex CLI / OpenCode / DSH / Crush，一键把它们的配置指向本网关（改前自动备份、可字节级还原、外部改动可感知），只碰本机配置文件，不参与请求路径；

@@ -22,7 +22,7 @@ import time
 import urllib.request
 import zipfile
 
-REPO_DEFAULT = "ardeyouxipianyi/workbuddy2api-hub"
+REPO_DEFAULT = "CRFH67I3/proxy-gateway-runtime"
 UPDATES_DIR = "updates"
 STATUS_NAME = "status.json"
 MANIFEST_NAME = "release-manifest.json"
@@ -120,7 +120,7 @@ def status():
 
 def asset_urls(repo, tag, version):
     """(zip_url, sha_url, zip_name) for one stable release."""
-    name = "workbuddy2api-hub-v%s.zip" % version
+    name = "proxy-gateway-runtime-v%s.zip" % version
     base = "https://github.com/%s/releases/download/%s" % (repo, tag)
     return base + "/" + name, base + "/SHA256SUMS", name
 

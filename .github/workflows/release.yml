@@ -105,11 +105,11 @@ jobs:
           # The OpenWrt recipe carries the same version in its package Makefile
           # and is the third place that has to agree, so check it here instead
           # of discovering the mismatch inside the SDK build.
-          PKGVER=$(sed -n 's/^PKG_VERSION:=//p' wrt/openwrt/workbuddy2api/Makefile | head -n1)
-          PKGREL=$(sed -n 's/^PKG_RELEASE:=//p' wrt/openwrt/workbuddy2api/Makefile | head -n1)
+          PKGVER=$(sed -n 's/^PKG_VERSION:=//p' wrt/openwrt/proxygateway/Makefile | head -n1)
+          PKGREL=$(sed -n 's/^PKG_RELEASE:=//p' wrt/openwrt/proxygateway/Makefile | head -n1)
           if [ "$PKGVER" != "$OVERVIEW" ]; then
             echo "::error::wrt Makefile PKG_VERSION=$PKGVER != source version $OVERVIEW"
-            echo "        bump PKG_VERSION in wrt/openwrt/workbuddy2api/Makefile"
+            echo "        bump PKG_VERSION in wrt/openwrt/proxygateway/Makefile"
             exit 1
           fi
           echo "version=$OVERVIEW" >> "$GITHUB_OUTPUT"
@@ -270,7 +270,7 @@ jobs:
             --version "${{ needs.version.outputs.version }}" `
             --tag "$env:TAG" `
             --runtime python `
-            --out "dist/workbuddy2api-hub-v${{ needs.version.outputs.version }}.zip"
+            --out "dist/proxy-gateway-runtime-v${{ needs.version.outputs.version }}.zip"
       - name: Boot the packaged runtime
         # Presence is not enough: the archive has to start the gateway with the
         # interpreter it carries, which is what a user double-clicks.
@@ -411,8 +411,8 @@ jobs:
           set -euo pipefail
           V="${{ needs.version.outputs.version }}"
           R="${{ needs.version.outputs.release }}"
-          IPK="wrt/ipk/workbuddy2api_${V}-${R}_all.ipk"
-          APK="wrt/apk/workbuddy2api-${V}-r${R}.apk"
+          IPK="wrt/ipk/proxygateway_${V}-${R}_all.ipk"
+          APK="wrt/apk/proxygateway-${V}-r${R}.apk"
           for f in "$IPK" "$APK"; do
             [ -s "$f" ] || { echo "::error::资产为空或不存在：$f"; exit 1; }
           done
@@ -578,9 +578,9 @@ jobs:
             --jq '"draft=\(.isDraft) prerelease=\(.isPrerelease)", (.assets[].name)'
           [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = "true" ] \
             || { echo "::error::$TAG 不是 draft，立即停止"; exit 1; }
-          for want in workbuddy2api-hub-v${{ needs.version.outputs.version }}.zip \
-                      workbuddy2api_${{ needs.version.outputs.version }}-${{ needs.version.outputs.release }}_all.ipk \
-                      workbuddy2api-${{ needs.version.outputs.version }}-r${{ needs.version.outputs.release }}.apk \
+          for want in proxy-gateway-runtime-v${{ needs.version.outputs.version }}.zip \
+                      proxygateway_${{ needs.version.outputs.version }}-${{ needs.version.outputs.release }}_all.ipk \
+                      proxygateway-${{ needs.version.outputs.version }}-r${{ needs.version.outputs.release }}.apk \
                       SHA256SUMS; do
             gh release view "$TAG" --json assets --jq '.assets[].name' | grep -qx "$want" \
               || { echo "::error::draft 里缺少资产 $want"; exit 1; }

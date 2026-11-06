@@ -17,15 +17,15 @@ import wb_update_portable
 
 
 REQUEST_DIR = os.environ.get(
-    "WB_UPDATE_REQUEST_DIR", "/run/workbuddy2api-hub-updater")
+    "WB_UPDATE_REQUEST_DIR", "/run/proxy-gateway-runtime-updater")
 REQUEST_FILE = os.path.join(REQUEST_DIR, "request.json")
 STATUS_FILE = os.path.join(REQUEST_DIR, "status.json")
 #: Inventory the root updater keeps next to status.json, so the panel can offer
 #: the backups that live under its root-only backup directory.
 BACKUPS_FILE = os.path.join(REQUEST_DIR, "backups.json")
-PATH_UNIT_FILE = "/etc/systemd/system/workbuddy2api-hub-updater.path"
+PATH_UNIT_FILE = "/etc/systemd/system/proxy-gateway-runtime-updater.path"
 ENABLED_UNIT_LINK = ("/etc/systemd/system/multi-user.target.wants/"
-                     "workbuddy2api-hub-updater.path")
+                     "proxy-gateway-runtime-updater.path")
 TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 VERSION_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 ACTIVE_STATES = frozenset((
