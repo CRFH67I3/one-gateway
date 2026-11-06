@@ -162,7 +162,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: workbuddy-hub-android
+          name: proxy-gateway-runtime-android
           path: mobile/android/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
 
@@ -185,11 +185,11 @@ jobs:
           mkdir -p dist-mobile
           for apk in mobile/android/app/build/outputs/apk/*/release/*.apk; do
             flavor=$(basename "$(dirname "$(dirname "$apk")")")
-            cp "$apk" "dist-mobile/workbuddy-hub-android-${TAG}-${flavor}.apk"
+            cp "$apk" "dist-mobile/proxy-gateway-runtime-android-${TAG}-${flavor}.apk"
           done
           for apk in mobile/android/app/build/outputs/apk/*/debug/*.apk; do
             flavor=$(basename "$(dirname "$(dirname "$apk")")")
-            cp "$apk" "dist-mobile/workbuddy-hub-android-${TAG}-${flavor}-debug.apk"
+            cp "$apk" "dist-mobile/proxy-gateway-runtime-android-${TAG}-${flavor}-debug.apk"
           done
           ls -lh dist-mobile
           for _ in $(seq 1 90); do

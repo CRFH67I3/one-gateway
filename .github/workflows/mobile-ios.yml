@@ -198,7 +198,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: workbuddy-hub-ios
+          name: proxy-gateway-runtime-ios
           path: mobile/ios/*.ipa
           if-no-files-found: error
 
@@ -212,7 +212,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist-mobile
-          cp mobile/ios/*.ipa "dist-mobile/workbuddy-hub-ios-${TAG}-unsigned.ipa"
+          cp mobile/ios/*.ipa "dist-mobile/proxy-gateway-runtime-ios-${TAG}-unsigned.ipa"
           for _ in $(seq 1 90); do
             if gh release view "$TAG" >/dev/null 2>&1; then
               gh release upload "$TAG" dist-mobile/*.ipa --clobber

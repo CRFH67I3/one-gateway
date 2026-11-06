@@ -420,8 +420,8 @@ open ProxyGatewayRuntime.xcodeproj                  # 选自己的 Team 后可�
 
 | 工作流 | 触发 | 产物 |
 |---|---|---|
-| `.github/workflows/mobile-android.yml` | 改动 `wb_*.py` / `dashboard.html` / `mobile/**` | `workbuddy-hub-android`（arm64 / x64 各一份 debug + release） |
-| `.github/workflows/mobile-ios.yml` | 同上 | `workbuddy-hub-ios`（未签名 IPA） |
+| `.github/workflows/mobile-android.yml` | 改动 `wb_*.py` / `dashboard.html` / `mobile/**` | `proxy-gateway-runtime-android`（arm64 / x64 各一份 debug + release） |
+| `.github/workflows/mobile-ios.yml` | 同上 | `proxy-gateway-runtime-ios`（未签名 IPA） |
 
 两条流水线都会先做语法门禁（`compileall`）并断言**核心确实进了包**
 （APK 里查 `assets/core/wb_proxy.py`，IPA 里查 `app/wb_proxy.py`、
