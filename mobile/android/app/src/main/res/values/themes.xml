@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- 面板是浅色页面，外壳跟着用浅色主题，避免 WebView 首帧闪黑。 -->
+    <!-- 浅色档的外壳。深色档在 values-night/themes.xml：手机切深色时状态栏、
+         顶栏和 WebView 底色要一起沉下去，否则深色面板顶上会顶一条白。 -->
     <style name="Theme.Hub" parent="@android:style/Theme.Material.Light.NoActionBar">
         <item name="android:statusBarColor">@color/header_bg</item>
         <item name="android:navigationBarColor">@color/header_bg</item>

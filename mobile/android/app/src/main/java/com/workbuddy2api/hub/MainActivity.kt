@@ -6,6 +6,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -144,7 +145,8 @@ class MainActivity : Activity() {
             // 面板会把接口地址渲染成可复制的文本，混合内容放宽避免 http 资源被拦。
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         }
-        webView.setBackgroundColor(0xFFFFFFFF.toInt())
+        // 底色跟着系统深浅走：页面第一帧到达之前露的就是它，浅色外壳配深色页面会闪白。
+        webView.setBackgroundColor(if (systemDark()) COLOR_WEB_BG_DARK else COLOR_WEB_BG_LIGHT)
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 swipe.isRefreshing = false
@@ -450,6 +452,27 @@ class MainActivity : Activity() {
         else -> "$bytes B"
     }
 
+    /**
+     * 手机现在是深色模式吗。
+     *
+     * 只看 `uiMode` 而不看 `resources.configuration.isNightModeActive`（API 29+），
+     * 是因为 minSdk 是 26，位运算在所有支持版本上都可用。
+     */
+    private fun systemDark(): Boolean =
+        (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+
+    /**
+     * 面板地址。`sysdark=1|0` 是外壳交给页面的「系统深色」权威值：
+     *
+     * WebView 报的 `prefers-color-scheme` 取决于 **App 主题**而不是系统设置，我们
+     * 的外壳是 `Theme.Material.Light`，手机切到深色时它仍然报 light，面板里选
+     * 「跟随系统」就会一直停在浅色。把系统值直接放进 URL，页面脚本在首帧之前就能
+     * 读到，不依赖任何原生注入的时序。
+     */
+    private fun panelUrl(port: Int): String =
+        "http://127.0.0.1:$port/?sysdark=" + if (systemDark()) "1" else "0"
+
     override fun onBackPressed() {
         if (webView.canGoBack()) webView.goBack() else super.onBackPressed()
     }
@@ -700,7 +723,10 @@ class MainActivity : Activity() {
             statusDot.setBackgroundResource(R.drawable.dot_running)
             statusText.text = getString(R.string.status_running, port, health.usable, health.accounts)
             overlay.visibility = View.GONE
-            val target = "http://127.0.0.1:$port/"
+            // ?sysdark= 把系统深浅色带给面板：WebView 的 prefers-color-scheme 跟的是
+            // App 主题（外壳是 Light），手机切深色它照样报浅色，「跟随系统」就失效了。
+            // 系统切深浅会让 Activity 重建（configChanges 里没有 uiMode），这里会重新取值。
+            val target = panelUrl(port)
             if (loadedUrl != target) {
                 loadedUrl = target
                 webView.loadUrl(target)
@@ -729,6 +755,9 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQUEST_PROJECT = 1002
+        // WebView 首帧底色的两端：取面板深色档里最深的那一档，加载完成前不刺眼。
+        private const val COLOR_WEB_BG_LIGHT = 0xFFFFFFFF.toInt()
+        private const val COLOR_WEB_BG_DARK = 0xFF101114.toInt()
         private const val MENU_RESTART = 2
         private const val MENU_SETTINGS = 3
         private const val MENU_PROJECT = 4

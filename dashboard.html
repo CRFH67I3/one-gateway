@@ -1774,12 +1774,32 @@ if(!window.__NEXT_UI__ && defaultConsoleLayout) {
   function getStyle(){ try { var s=localStorage.getItem(THEME_STYLE_KEY); return THEME_STYLES[s] ? s : 'alibaba'; } catch(e){ return 'alibaba'; } }
   function setStyleAttr(s){ document.documentElement.setAttribute('data-theme-style',s); }
   var mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  /* 「跟随系统」到底跟谁：原生外壳说了算，媒体查询只当兜底。
+     Android WebView 的 prefers-color-scheme 跟的是 **App 主题**，不是手机的系统
+     设置——外壳用的是 Light 主题，手机切到深色它照样报 light，「跟随系统」就永远
+     停在浅色（真机复现过）。所以改由外壳把系统值写进加载地址：?...&sysdark=1|0。
+     这里在脚本开头读一次就缓存：面板里有几处 history.replaceState 会按自己的参数
+     重建 URL，每次现读会在中途把这个参数弄丢。 */
+  var NATIVE_DARK = (function(){
+    try {
+      var q = new URLSearchParams(location.search).get('sysdark');
+      if(q === '1') return true;
+      if(q === '0') return false;
+    } catch(e){}
+    return null;
+  })();
+  function systemPrefersDark(){
+    // 原生也可以运行中直接改这个全局再抛 wb:system-theme 事件（见 initThemeSystem）。
+    if(typeof window.__WB_SYSTEM_DARK__ === 'boolean') return window.__WB_SYSTEM_DARK__;
+    if(NATIVE_DARK !== null) return NATIVE_DARK;
+    return !!(mq && mq.matches);
+  }
   function getPref(){
     try { return localStorage.getItem(THEME_KEY) || 'system'; } catch(e){ return 'system'; }
   }
   function resolve(pref){
     if(pref === 'dark' || pref === 'light') return pref;
-    return (mq && mq.matches) ? 'dark' : 'light';
+    return systemPrefersDark() ? 'dark' : 'light';
   }
 
   // 1. 初始化主题（防止闪烁）
@@ -1906,6 +1926,13 @@ if(!window.__NEXT_UI__ && defaultConsoleLayout) {
         }
       });
     }
+    // 原生外壳运行中换了系统深色（不走重载时用它）：{detail:{dark:true}}。
+    window.addEventListener('wb:system-theme', function(e){
+      var dark = e && e.detail ? e.detail.dark : undefined;
+      if(typeof dark !== 'boolean') return;
+      window.__WB_SYSTEM_DARK__ = dark;
+      if(getPref() === 'system') window.applyTheme('system');
+    });
     document.addEventListener('click', function(e){
       var wrap = document.getElementById('themeDropdownWrap');
       if(wrap && !wrap.contains(e.target)){

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 系统深色时的外壳主题：深底 + 浅色状态栏图标。
+         面板自己会按 data-theme 换肤，这一层只管原生那一圈（状态栏、顶栏、
+         导航栏、WebView 底色），否则深色页面顶上会顶一条白条。 -->
+    <style name="Theme.Hub" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@color/header_bg</item>
+        <item name="android:navigationBarColor">@color/header_bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:colorAccent">@color/colorPrimary</item>
+        <item name="android:windowBackground">@color/page_bg</item>
+    </style>
+</resources>

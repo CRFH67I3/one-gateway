@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 系统深色下的外壳。取值贴着面板深色档的底色（#101114 一带），
+         WebView 还没交出第一帧时露出来的就是这层，不能比页面亮一截。 -->
+    <color name="header_bg">#17181C</color>
+    <color name="page_bg">#101114</color>
+    <color name="text_primary">#EDEBE3</color>
+    <color name="text_secondary">#A5A29A</color>
+</resources>

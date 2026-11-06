@@ -95,6 +95,7 @@ function makeHarness(seed) {
   });
   elements.get('themeDropdown').querySelectorAll = sel => sel === '[data-theme-style-option]' ? styleOpts : [];
   const docListeners = {};
+  const winListeners = {};
   const mediaListeners = [];
   const media = { matches: !!seed.systemDark, addEventListener(type, fn) { mediaListeners.push(fn); } };
   const store = new Map(seed.stored === undefined ? [] : [['wb-theme', seed.stored]]);
@@ -103,7 +104,10 @@ function makeHarness(seed) {
   const documentElement = makeElement('html');
   documentElement.style = { setProperty() {}, getPropertyValue() { return ""; } };
 
-  const win = { matchMedia: () => media };
+  const win = {
+    matchMedia: () => media,
+    addEventListener: (type, fn) => { (winListeners[type] = winListeners[type] || []).push(fn); },
+  };
   const doc = {
     documentElement,
     getElementById: (id) => elements.get(id) || null,
@@ -115,14 +119,17 @@ function makeHarness(seed) {
     setItem: (k, v) => { store.set(k, String(v)); },
     removeItem: (k) => { store.delete(k); },
   };
+  // 面板脚本会读 location.search 里的 sysdark（原生外壳传进来的系统深浅色）。
+  const loc = { search: seed.search || '' };
 
-  new Function('window', 'document', 'localStorage', source)(win, doc, storage);
+  new Function('window', 'document', 'localStorage', 'location', source)(win, doc, storage, loc);
 
   return {
-    win, doc, documentElement, storage, store, elements,
-    media, mediaListeners, docListeners,
+    win, doc, documentElement, storage, store, elements, loc,
+    media, mediaListeners, docListeners, winListeners,
     el: (id) => elements.get(id),
     fire: (type, event) => (docListeners[type] || []).forEach((fn) => fn(event)),
+    emit: (type, event) => (winListeners[type] || []).forEach((fn) => fn(event)),
   };
 }
 
@@ -191,6 +198,43 @@ assert.strictEqual(sysDark.documentElement.getAttribute('data-theme'), 'light',
   '系统切成浅色后看板要跟着切');
 assert.strictEqual(sysDark.documentElement.getAttribute('data-theme-pref'), 'system',
   '跟着系统变不应把偏好改成 light');
+
+// ---- 4b. 原生外壳给的 sysdark 压过媒体查询 ----
+// 真机现场：手机切深色，面板里选「跟随系统」，面板还是浅的。原因是 Android WebView
+// 的 prefers-color-scheme 跟 **App 主题**（外壳是 Theme.Material.Light）走，而不是
+// 系统设置。所以外壳把系统值写进加载地址 `?sysdark=1|0`，页面必须无条件信它。
+const nativeDark = makeHarness({ stored: 'system', systemDark: false, search: '?sysdark=1' });
+assert.strictEqual(nativeDark.documentElement.getAttribute('data-theme'), 'dark',
+  '外壳说系统是深色（?sysdark=1）时，媒体查询报 light 也必须用深色');
+const nativeLight = makeHarness({ stored: 'system', systemDark: true, search: '?sysdark=0&tab=settings' });
+assert.strictEqual(nativeLight.documentElement.getAttribute('data-theme'), 'light',
+  '外壳说系统是浅色（?sysdark=0）时必须用浅色，且不受其它查询参数影响');
+const pinned = makeHarness({ stored: 'light', systemDark: true, search: '?sysdark=1' });
+assert.strictEqual(pinned.documentElement.getAttribute('data-theme'), 'light',
+  '用户亲手选的档位仍然压过系统值');
+
+// 参数在脚本开头读一次就缓存：面板里有几处 history.replaceState 会按自己的参数
+// 重建 URL，中途把 sysdark 弄丢，不能因此又退回浅色。
+nativeDark.loc.search = '';
+nativeDark.win.initThemeSystem();
+nativeDark.win.applyTheme('system');
+assert.strictEqual(nativeDark.documentElement.getAttribute('data-theme'), 'dark',
+  'URL 被 replaceState 重写后，仍要用首帧读到的系统值');
+
+// ---- 4c. 原生运行中切换系统深浅：wb:system-theme 事件 ----
+const liveSwitch = makeHarness({ stored: 'system', systemDark: false });
+liveSwitch.win.initThemeSystem();
+liveSwitch.emit('wb:system-theme', { detail: { dark: true } });
+assert.strictEqual(liveSwitch.documentElement.getAttribute('data-theme'), 'dark',
+  '原生通知系统变深色时看板要立刻跟着切');
+assert.strictEqual(liveSwitch.documentElement.getAttribute('data-theme-pref'), 'system',
+  '跟着系统变不应把偏好改成 dark');
+
+const pinnedDark = makeHarness({ stored: 'light', systemDark: false });
+pinnedDark.win.initThemeSystem();
+pinnedDark.emit('wb:system-theme', { detail: { dark: true } });
+assert.strictEqual(pinnedDark.documentElement.getAttribute('data-theme'), 'light',
+  '用户选了浅色时，系统变深色不能把他拽走');
 
 // ---- 5. 点空白处 / 按 Esc 收起菜单 ----
 const outside = makeHarness({});
