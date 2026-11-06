@@ -43,8 +43,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # AGP 8.7 needs JDK 17; Chaquopy needs a host Python whose minor version
-      # matches the embedded one (3.13) to assemble the pip requirements.
+      # AGP 9.4 needs JDK 17, SDK Build Tools 36 and Gradle 9.6; Chaquopy needs a
+      # host Python whose minor version matches the embedded one (3.13).
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -54,7 +54,7 @@ jobs:
           python-version: "3.13"
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.9"
+          gradle-version: "9.6.0"
 
       - name: Syntax gate (gateway core + bridge)
         run: |

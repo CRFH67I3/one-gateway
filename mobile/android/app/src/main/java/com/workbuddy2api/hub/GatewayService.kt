@@ -45,11 +45,8 @@ class GatewayService : Service() {
             if (action == ACTION_STOP) {
                 context.stopService(intent)
             } else {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
-                    context.startService(intent)
-                }
+                // minSdk 26 起 startForegroundService() 无条件可用。
+                context.startForegroundService(intent)
             }
         }
     }
@@ -169,7 +166,7 @@ class GatewayService : Service() {
     )
 
     private fun createChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        // minSdk 26 起通知渠道必定存在，不用再判断 SDK_INT。
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (manager.getNotificationChannel(CHANNEL_ID) != null) return
         val channel = NotificationChannel(

@@ -2,7 +2,6 @@ import java.io.File
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("com.chaquo.python")
 }
 
@@ -22,11 +21,18 @@ val versionCodeValue: Int = run {
 
 android {
     namespace = "com.workbuddy2api.hub"
-    compileSdk = 35
+    // 跟着本机装的最高一档平台走（当前是 Android 17 / API 37）。compileSdk 只影响
+    // 「编译器能看到哪些新 API」，运行时行为由 targetSdk 决定，所以可以放心追最新；
+    // 但 AGP 对它有上限，升级平台时一起升 AGP（9.4 支持到 API 37）。
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.workbuddy2api.hub"
-        minSdk = 24
+        // Android 8.0（API 26）。外壳离不开的两件事都在这一档变成无条件可用：
+        // 通知渠道（Channel/IMPORTANCE_LOW）与 startForegroundService()。
+        // 停在 24/25 就得为它们各写一套旧路径，而 8.0 以下机型跑不动
+        // Chaquopy 的 Python 3.13 + 现代 WebView，实测收益为零，索性把底线抬平。
+        minSdk = 26
         targetSdk = 34
         versionCode = versionCodeValue
         versionName = serverVersion
@@ -124,13 +130,16 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     // AGP 8 起 BuildConfig 默认不生成；外壳要用 VERSION_NAME/VERSION_CODE 判断
-    // 「包内核心是否需要重新解压」，所以显式打开。
+    // 「包内核心是否需要重新解压」，所以显式打开（9.4 里同名开关仍然存在）。
+    //
+    // resValues 是 AGP 9 新拆出来的开关：`defaultConfig.resValue(...)` 生成
+    // app_version_name 属于「自定义资源值」，默认关掉，打开它这一行不能省。
     buildFeatures {
         buildConfig = true
+        resValues = true
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
+    // AGP 9 的内建 Kotlin 把 jvmTarget 默认对齐到 targetCompatibility（上面是 17），
+    // 所以不再需要 android.kotlinOptions——那个 DSL 在内建 Kotlin 下已删除。
     packaging {
         resources.excludes += setOf(
             "META-INF/LICENSE*",

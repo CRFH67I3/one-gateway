@@ -100,11 +100,26 @@ mobile/
 | 控制入口 | 通知栏「停止」、App 内菜单（重启网关 / 端口设置 / 导入凭证 / 复制 API 地址 / 日志 / 关于 / 退出） | App 内菜单（含「后台保持」设置页） |
 | 面板 | 系统 WebView + 下拉刷新 | `WKWebView` |
 | 面板 JS 弹窗 | `WebChromeClient` 把 `alert/confirm/prompt` 接到原生对话框；`target=_blank` 在同一 WebView 打开 | `WKUIDelegate` 提供同样的三个回调 |
+| 深色模式 | 面板「跟随系统」按外壳传进来的 `?sysdark=` 取值（见下），原生外壳走 `values-night` 资源 | `WKWebView` 直接跟随系统外观，不用额外通道 |
 | 存储 | `filesDir/data`（accounts/usage/catalog/logs） | `Library/Application Support/data` |
 | 明文回环 | `network_security_config` 放行 127.0.0.1 | ATS 例外 + `NSAllowsLocalNetworking` |
 | HTTPS 根证书 | Android 系统证书目录（`SSL_CERT_DIR`） | 随包 `certifi`（iOS 无系统 CA 路径） |
 | 局域网访问 | 绑 0.0.0.0，通知里给 IP；自动生成 API Key | 同左，另需「本地网络」权限 |
 | 版本号 | Gradle 从 `wb_proxy.py` 的 `server_version` 解析 | CI 从同一处解析并注入 `MARKETING_VERSION` |
+
+**Android 的「跟随系统」为什么要单独走一条通道**：`targetSdk 33+` 的 WebView 是按
+**App 主题的 `isLightTheme`** 决定 `prefers-color-scheme` 的（[Android 13 行为变更](https://developer.android.google.cn/about/versions/13/behavior-changes-13)），
+不是手机的系统设置。外壳原来固定 `Theme.Material.Light`，于是手机切深色时 WebView
+照样报 `light`，面板里选「跟随系统」和选「浅色」没有区别。现在两层都对上：
+
+- 外壳按 `uiMode` 判断系统深浅，把 `?sysdark=1` / `?sysdark=0` 拼进面板地址，页面脚本在
+  首帧之前就读到（并缓存——面板里有 `history.replaceState` 会重写 URL）；浏览器里没有
+  这个参数，仍用 `prefers-color-scheme`，桌面行为不变；
+- `values-night/` 提供深色档的主题与配色，状态栏图标、顶栏、导航栏和 WebView 首帧底色
+  一起沉下去，不会在深色面板顶上留一条白。
+
+系统切深浅会重建 Activity（清单里没放行 `uiMode`），面板地址因此重新取值，不需要额外
+监听；`wb:system-theme` 事件留给「不重载页面也要换肤」的场景。
 
 ## iOS 后台保持与实时活动
 
@@ -145,18 +160,38 @@ App 内菜单 →「后台保持」有三个开关，对应三种手段：
 ### Android
 
 ```bash
-# 需要 JDK 17、Android SDK（platform 35）；无需本机装 Gradle，CI 用 8.9
+# 需要 JDK 17、Android SDK（platform 37 + build-tools 36）；无需本机装 Gradle，CI 用 9.6
 cd mobile/android
 gradle :app:assembleDebug        # 或 :app:assembleRelease
 # 产物：app/build/outputs/apk/<flavor>/<buildType>/app-<flavor>-<buildType>.apk
 ```
 
+**工具链口径**：`compileSdk = 37`（Android 17）、`targetSdk = 34`、`minSdk = 26`，
+AGP 9.4.1 + Gradle 9.6 + Chaquopy 17.0.0。`compileSdk` 只决定「编译器能看见哪些新 API」，
+运行时行为由 `targetSdk` 决定，所以可以跟着平台往上走；但 AGP 对它有硬上限（9.4 → API 37），
+升级平台必须同时升 AGP，否则会报 unsupported compileSdk。
+
+AGP 9 有两处和 8.x 不一样，改动构建脚本时容易踩：
+
+- **Kotlin 内建**：不再声明 `org.jetbrains.kotlin.android`，编译器由 AGP 自带的 KGP 提供
+  （9.4 的底线是 2.2.10），`android { kotlinOptions {} }` 这个 DSL 也随之删除，`jvmTarget`
+  默认对齐 `compileOptions.targetCompatibility`。
+- **`resValues` 变成显式开关**：`defaultConfig.resValue("string", ...)`（外壳用它生成
+  `app_version_name`）属于「自定义资源值」，AGP 9 默认关闭，必须在
+  `buildFeatures { resValues = true }` 里打开，否则配置阶段就报
+  「defaultConfig contains custom resource values, but the feature is disabled」。
+
+**最低支持 Android 8.0（`minSdk = 26`）**。外壳的两处地基都假定这一档：
+常驻通知用通知渠道（`NotificationChannel`），服务启动用 `startForegroundService()`。
+停在 24/25 就得为它们各写一条旧路径，而 8.0 以下机型又跑不动 Chaquopy 的
+Python 3.13 与现代 WebView，所以底线直接抬到 26；`targetSdk = 34`。
+
 **每个 ABI 单独出包**（flavor 维度 `abi`）：
 
 | flavor | ABI | 用途 | 大致体积 |
 |---|---|---|---|
-| `arm64` | `arm64-v8a` | 真机（现在几乎所有 Android 手机） | ~23 MB |
-| `x64` | `x86_64` | 模拟器 / x86_64 设备 | ~23 MB |
+| `arm64` | `arm64-v8a` | 真机（现在几乎所有 Android 手机） | ~19 MB |
+| `x64` | `x86_64` | 模拟器 / x86_64 设备 | ~19 MB |
 
 **两种构建类型刻意不同**：
 
@@ -177,7 +212,7 @@ release 的保留规则在 `app/proguard-rules.pro`：Chaquopy 的 `com.chaquo.p
   ABI 的副本照样留在包内。官方 FAQ 也写明 splits 与 App Bundle 对 Chaquopy 帮助不大。
 - 因此 `ndk.abiFilters` **只能写在 flavor 里**：它与 `defaultConfig` 是取并集，
   留在 `defaultConfig` 会让两个 flavor 都拿到两个 ABI，拆包白做。
-- 合并后的包从 34.7 MB 降到约 23 MB（省掉另一套 native 库 + 标准库）。
+- 合并后的包从 34.7 MB 降到约 19 MB（省掉另一套 native 库 + 标准库，以及容器模式不再携带的网关源码）。
 - `versionName` 带 ABI 后缀（`1.10.7-arm64` / `1.10.7-x64`），装上后能在「关于」里
   确认手里的是哪个包；`versionCode` 两个 flavor 相同，同一台设备本来也只能装一个。
 - CI 会逐个包校验「只有一套 ABI 原生库 + 一份 ABI 专属标准库」，拆包没生效直接失败。

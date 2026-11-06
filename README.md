@@ -129,7 +129,7 @@ CPython 3.13，iOS 链接 BeeWare `python-app-support` 的 `Python.framework`）
 | iOS | 前台运行；iOS 26 可开「持续后台处理」 | 进后台 20 秒宽限后关闭监听，回前台自动恢复；iOS 26+ 可选用 `BGContinuedProcessingTask` 保活，并可选锁屏实时活动 / 灵动岛显示（三个开关都能单独关掉） |
 
 - 构建产物由 `.github/workflows/mobile-android.yml`（APK）与 `mobile-ios.yml`（未签名 IPA）自动产出，也支持本地构建；
-- Android 按 ABI 拆包，两个 flavor 各自只带一套原生库：`arm64`（真机，约 23 MB）与 `x64`（模拟器），比双 ABI 合包（约 35 MB）小四成；
+- Android 按 ABI 拆包，两个 flavor 各自只带一套原生库：`arm64`（真机，约 19 MB）与 `x64`（模拟器），比双 ABI 合包（约 35 MB）小近一半；
 - **移动端外壳全部由 Vibe Coding（AI 辅助生成、对话式迭代）完成**，未经逐行人工审查，属实验性代码；网关内核未改写，仍是本仓库原有的 `wb_*.py`。用前请自行评估风险；
 - 详细原理、目录结构、构建命令与已知限制见 **[`mobile/README.md`](mobile/README.md)**。
 
@@ -245,7 +245,7 @@ python tests/run_all.py            # 全部套件
 python tests/run_all.py realm      # 只跑名字里含 realm 的
 ```
 
-- 263 个套件：199 个 Python + 64 个 JS；JS 需要 PATH 上有 `node`，缺失时会跳过并提示。
+- 266 个套件：202 个 Python + 64 个 JS；JS 需要 PATH 上有 `node`，缺失时会跳过并提示。
 - `tests/_mobile_check.py` 是独立的 Playwright 手机/桌面布局检查器（需自行安装 Playwright），按需手动运行，不在上面的套件集里。
 - CI（`.github/workflows/tests.yml`）跑同一条命令：Ubuntu 上 python 3.9 与 3.12（3.9 是本项目声称的最低版本），Windows 上 python 3.12；推送 `v*` tag 时额外断言 **tag == 源码版本**（`-ci` 演练 tag 豁免）。
 
@@ -256,6 +256,12 @@ python tests/run_all.py realm      # 只跑名字里含 realm 的
 ### Unreleased
 
 - **Android 改为「网关运行环境」形态（容器模式）**：APK 不再打包网关源码，只带 CPython 运行时与常驻托管外壳；装网关只有一件事——把一份仓库代码放进去，菜单里因此只有「手动更新」（选你手上的 ZIP，离线可用、可装任意版本）与「自动更新」（一键拉仓库 main）两个动作，首次安装与日后升级共用这两条路，都不需要凭证。解压到沙盒后即可运行，换代码不必重装 APK；账号、用量、模型目录仍存放在 App 数据目录，更新不会丢。原「项目信息」并入「关于与项目信息」，一个对话框里同时看到 App 版本、网关版本与落盘位置；菜单里的「导入账号凭证」已移除，账号登录统一走面板的 OAuth；`debug` 全量构建、`release` 走 R8 最小化构建。
+
+- **Android 面板「跟随系统」真正跟随手机深色**：`targetSdk 33+` 的 WebView 按 App 主题的 `isLightTheme` 决定 `prefers-color-scheme`，外壳固定浅色主题时手机切深色也只会报 light，「跟随系统」与「浅色」没有区别。现在外壳读 `uiMode` 把系统值随地址传给面板（`?sysdark=1|0`），并补了 `values-night` 的反色主题与配色，状态栏、顶栏与 WebView 首帧底色一起沉下去；浏览器里没有该参数时仍走媒体查询，桌面行为不变。
+
+- **Android 最低支持版本抬到 Android 8.0（`minSdk 26`）**：外壳的两处地基都假定这一档——常驻通知用通知渠道（`NotificationChannel`），服务启动用 `startForegroundService()`。停在 24/25 就得为它们各写一条旧路径，而 8.0 以下机型又跑不动 Chaquopy 的 Python 3.13 与现代 WebView，分叉实际永远走不到，于是删掉死代码、把底线抬平；`targetSdk` 仍为 34。
+
+- **Android 构建工具链跟进最新平台**：`compileSdk` 从 35 抬到 **37（Android 17）**，AGP 8.7.3 → **9.4.1**、Gradle 8.9 → **9.6**、Chaquopy 16.1.0 → **17.0.0**（16.x 只支持到 AGP 8.13）。`compileSdk` 只影响编译期可见 API，`targetSdk` 仍显式钉在 34，运行时行为不变。AGP 9 的内建 Kotlin 让 `org.jetbrains.kotlin.android` 插件与 `android.kotlinOptions` 一起退场（`jvmTarget` 自动对齐 `targetCompatibility`），`defaultConfig.resValue(...)` 则要显式打开 `buildFeatures { resValues = true }` 才能用。
 
 完整历史版本与详细变更日志请查阅 **[docs/CHANGELOG.md](docs/CHANGELOG.md)**。
 
