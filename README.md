@@ -255,6 +255,8 @@ python tests/run_all.py realm      # 只跑名字里含 realm 的
 
 ### Unreleased
 
+- **Android 切换系统深浅色不再踢回登录页**：清单放行 `uiMode`，切深浅时 Activity 不再重建——重建会把 WebView 一起销毁，而面板的登录态活在页面内存里（不是 cookie），用户只是把手机调成深色，回来就得重新输密码（真机实测掉两次，而系统深色是很多人的常开设置）。现在由 `onConfigurationChanged` 原地换肤：重刷状态栏/顶栏/覆盖层/按钮/WebView 底色（XML 里写死的 `@color` 不会随配置自动更新），再把新值用 `wb:system-theme` 派给页面；页面不重载，滚动位置与会话都保住。同步 `loadedUrl` 是关键一步，否则 2.5 秒一次的状态轮询会发现 URL 变了而立刻 `loadUrl`，等于白换肤。旋转仍然走重建（`configChanges` 只有 `keyboardHidden|uiMode`），因为 WebView 不重建会留着上一次的 pinch 缩放。
+- **APK 版本名带上构建日期**：`versionName` 从 `1.10.9-arm64` 改为 `1.10.20261106-arm64`——前两段仍跟仓库 `wb_proxy.py` 的 `server_version`，第三段换成 8 位构建日期（`yyyyMMdd`），跨天自然递增、一眼看出包是哪天出的；`versionCode` 不随日期漂移，覆盖安装不受影响。
 - **Android 首装界面两个按钮统一成一个组件**：原来「手动更新」是系统默认灰块、「自动更新」是一行裸文字，同屏两种控件。现在都由 `Hub.Button.Primary` / `Hub.Button.Secondary` 出外观——同高度、同最小宽度、同圆角、同字号，只差实心与描边，页面上不再允许单独给按钮写 background/textSize；同时清掉了主题的 `backgroundTint`（那个灰块就是它染的），并补上禁用态。外壳配色改为对齐面板新界面（`html[data-ui="next"]`）的 token：`page_bg`/`header_bg`/`text_*`/`colorPrimary` = 面板的 bg/panel/fg/dim/accent（浅色 #f4f6f9 / #4f46e5，深色 #0f1115 / #818cf8），WebView 首帧底色与面板首屏同色，不再闪白/闪灰。
 - **Android 改为「网关运行环境」形态（容器模式）**：APK 不再打包网关源码，只带 CPython 运行时与常驻托管外壳；装网关只有一件事——把一份仓库代码放进去，菜单里因此只有「手动更新」（选你手上的 ZIP，离线可用、可装任意版本）与「自动更新」（一键拉仓库 main）两个动作，首次安装与日后升级共用这两条路，都不需要凭证。解压到沙盒后即可运行，换代码不必重装 APK；账号、用量、模型目录仍存放在 App 数据目录，更新不会丢。原「项目信息」并入「关于与项目信息」，一个对话框里同时看到 App 版本、网关版本与落盘位置；菜单里的「导入账号凭证」已移除，账号登录统一走面板的 OAuth；`debug` 全量构建、`release` 走 R8 最小化构建。
 

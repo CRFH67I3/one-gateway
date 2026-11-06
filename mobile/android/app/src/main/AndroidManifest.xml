@@ -21,10 +21,16 @@
         <!-- 旋转不放行：让 Activity 重建，WebView 才会按新视口重算页面缩放。
              声明 orientation|screenSize 时系统不重建，WebView 会留着上一次的
              pinch 缩放（横屏右侧按钮被裁掉，reload 也清不掉，只有新 WebView 才行）。
-             网关跑在前台服务里，界面重建不影响监听。 -->
+             网关跑在前台服务里，界面重建不影响监听。
+
+             uiMode 必须放行，这和旋转是两件事：切系统深浅会重建 Activity，连带
+             销毁 WebView，面板里只在内存里的登录态（面板把 token 放在页面 JS 里，
+             不是 cookie）随之消失——用户只是换了个深色主题，回来就要求重新输密码。
+             放行后由 MainActivity.onConfigurationChanged 自己换色，并把 wb:system-theme
+             事件派给页面，WebView 实例不重建、登录态保住。 -->
         <activity
             android:name=".MainActivity"
-            android:configChanges="keyboardHidden"
+            android:configChanges="keyboardHidden|uiMode"
             android:exported="true"
             android:launchMode="singleTask">
             <intent-filter>

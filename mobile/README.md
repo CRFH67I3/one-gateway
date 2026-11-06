@@ -118,8 +118,17 @@ mobile/
 - `values-night/` 提供深色档的主题与配色，状态栏图标、顶栏、导航栏和 WebView 首帧底色
   一起沉下去，不会在深色面板顶上留一条白。
 
-系统切深浅会重建 Activity（清单里没放行 `uiMode`），面板地址因此重新取值，不需要额外
-监听；`wb:system-theme` 事件留给「不重载页面也要换肤」的场景。
+切深浅时 Activity **不重建**（清单放行了 `uiMode`）：重建会把 WebView 一起销毁，而面板
+的登录态活在页面内存里（不是 cookie），用户只是把手机调成深色，回来就得重新输密码——
+真机实测掉过两次，而且系统深色是很多人的常开设置，不是一次性操作。所以改由
+`onConfigurationChanged` 原地换肤：重刷原生那一圈颜色（XML 里的 `@color` 不会随配置
+自动更新），再把新值用 `wb:system-theme` 派给页面，页面不重载、滚动位置和会话都保住。
+
+细节上有一处容易漏：换肤后 URL 里的 `sysdark` 还是旧值，必须同步 `loadedUrl`，否则
+2.5 秒一次的状态轮询会发现 `loadedUrl != panelUrl` 并立刻 `loadUrl`，等于白换肤。
+
+旋转仍然走重建（`configChanges` 只有 `keyboardHidden|uiMode`）：WebView 不重建就会留着
+上一次的 pinch 缩放，横屏右侧按钮被裁掉。
 
 ## Android 外壳与面板共用一套外观
 
@@ -240,8 +249,11 @@ release 的保留规则在 `app/proguard-rules.pro`：Chaquopy 的 `com.chaquo.p
 - 因此 `ndk.abiFilters` **只能写在 flavor 里**：它与 `defaultConfig` 是取并集，
   留在 `defaultConfig` 会让两个 flavor 都拿到两个 ABI，拆包白做。
 - 合并后的包从 34.7 MB 降到约 19 MB（省掉另一套 native 库 + 标准库，以及容器模式不再携带的网关源码）。
-- `versionName` 带 ABI 后缀（`1.10.7-arm64` / `1.10.7-x64`），装上后能在「关于」里
-  确认手里的是哪个包；`versionCode` 两个 flavor 相同，同一台设备本来也只能装一个。
+- `versionName` 形如 `1.10.20261106-arm64`：前两段跟仓库 `wb_proxy.py` 的
+  `server_version`，**第三段是构建日期（8 位 `yyyyMMdd`）**，末尾是 ABI 后缀。日期段
+  让人一眼看出这个包是哪天出的、跨天自然递增；同日多次构建版本名相同（`versionCode`
+  仍由 `server_version` 算，不随日期漂移，覆盖安装不受影响）。`versionCode` 两个 flavor
+  相同，同一台设备本来也只能装一个。
 - CI 会逐个包校验「只有一套 ABI 原生库 + 一份 ABI 专属标准库」，拆包没生效直接失败。
 
 - **不再把网关源码打进 APK**：容器模式下 `assets/core/` 不再生成，构建只负责把
@@ -340,7 +352,8 @@ APK 仍然能装、能启动，只是会停在「尚未导入网关项目」。
    `.py`/`.pyc`、`dashboard.html` 或 pip 依赖，直接判红。
 3. `.gitignore` 保留 `assets/core/` 规则当绊线——真有人拷回来至少不会入库。
 4. 打包路径只有 `src/main/python` 一处：构建脚本不改写 `sourceSets` / `assets.srcDirs`，
-   仓库根只在算 `versionName` 时读一次 `wb_proxy.py` 的 `server_version`（只读不拷）。
+   仓库根只在算版本号时读一次 `wb_proxy.py` 的 `server_version`（只读不拷；前两段进
+   版本名，`versionCode` 由它算，第三段换成构建日期）。
 
 自动化测试：`python tests/_test_android_auto_import.py`（外壳接线 + 解压契约，离线秒级）；
 加 `WB_LIVE_IMPORT=1` 会真的从镜像下一次并解压，验证地址当前可用、包结构没变。

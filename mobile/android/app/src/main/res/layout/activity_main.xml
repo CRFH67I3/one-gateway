@@ -1,11 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/page_bg"
     android:orientation="vertical">
 
+    <!-- 这里的 @color 是浅色档的初值。系统切深浅时 Activity 不再重建（清单放行了
+         uiMode），所以这一层的颜色由 MainActivity.applyShellColors() 重新刷一遍，
+         两个 id 就是给那次刷新用的。 -->
     <LinearLayout
+        android:id="@+id/header"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@color/header_bg"

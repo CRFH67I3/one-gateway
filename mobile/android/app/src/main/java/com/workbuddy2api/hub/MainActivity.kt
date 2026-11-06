@@ -32,6 +32,8 @@ import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.content.ContextCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import org.json.JSONObject
 import java.io.File
@@ -49,6 +51,8 @@ import java.util.concurrent.Executors
  */
 class MainActivity : Activity() {
 
+    private lateinit var rootView: View
+    private lateinit var headerView: View
     private lateinit var webView: WebView
     private lateinit var swipe: SwipeRefreshLayout
     private lateinit var statusText: TextView
@@ -61,6 +65,9 @@ class MainActivity : Activity() {
     private val io = Executors.newSingleThreadExecutor()
     private val ui = Handler(Looper.getMainLooper())
     private var loadedUrl: String? = null
+
+    /** 上一次刷外壳颜色时的系统深浅；null 表示还没刷过。 */
+    private var appliedDark: Boolean? = null
 
     /**
      * 自动导入是否正在进行。
@@ -101,6 +108,8 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        rootView = findViewById(R.id.root)
+        headerView = findViewById(R.id.header)
         webView = findViewById(R.id.webView)
         swipe = findViewById(R.id.swipe)
         statusText = findViewById(R.id.statusText)
@@ -126,10 +135,77 @@ class MainActivity : Activity() {
         overlayAuto.setOnClickListener { startAutoImport() }
         findViewById<ImageButton>(R.id.menuButton).setOnClickListener { showMenu(it) }
 
+        // 界面搭完之后统一刷一次外壳配色，深浅两档都由它决定。
+        applyShellColors()
+
         // 只对「已经导入过项目」的机器自动启动：首次安装应当先看到导入引导。
         if (Prefs.autoStart(this) && GatewayBridge.projectRoot(this) != null) {
             GatewayService.send(this, GatewayService.ACTION_START)
         }
+    }
+
+    /**
+     * 把外壳（状态栏、顶栏、覆盖层、按钮、WebView 首帧底色）刷成当前系统的深浅。
+     *
+     * 为什么需要手动刷：清单放行了 `uiMode`，切深浅时 Activity 不再重建，XML 里那些
+     * `@color/page_bg`、`@color/header_bg` 早已 inflate 成旧颜色，不会自己变；主题里的
+     * `windowLightStatusBar` 同理。所以颜色只有这一处出口，`onCreate` 与
+     * `onConfigurationChanged` 都走它，两档不可能走岔。
+     */
+    private fun applyShellColors() {
+        val dark = systemDark()
+        appliedDark = dark
+        val page = ContextCompat.getColor(this, R.color.page_bg)
+        val header = ContextCompat.getColor(this, R.color.header_bg)
+
+        rootView.setBackgroundColor(page)
+        headerView.setBackgroundColor(header)
+        overlay.setBackgroundColor(page)
+        statusText.setTextColor(ContextCompat.getColor(this, R.color.text_primary))
+        overlayText.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
+
+        // 底色跟顶栏，图标要跟底色反着来：深色顶栏配深色图标等于没有图标。
+        window.statusBarColor = header
+        window.navigationBarColor = header
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !dark
+            isAppearanceLightNavigationBars = !dark
+        }
+
+        // 按钮的外观是 drawable + color selector，同样不会随配置自动重刷。
+        overlayAction.setBackgroundResource(R.drawable.bg_btn_primary)
+        overlayAction.setTextColor(
+            ContextCompat.getColorStateList(this, R.color.btn_label_on_primary)
+        )
+        overlayAuto.setBackgroundResource(R.drawable.bg_btn_secondary)
+        overlayAuto.setTextColor(
+            ContextCompat.getColorStateList(this, R.color.btn_label_secondary)
+        )
+
+        // 面板第一帧到达前露的就是它，与面板首屏同色才不会闪一下。
+        webView.setBackgroundColor(if (dark) COLOR_WEB_BG_DARK else COLOR_WEB_BG_LIGHT)
+    }
+
+    /**
+     * 切系统深浅只换色，不重建界面。
+     *
+     * 重建的代价是 WebView 一起销毁：面板的登录态活在页面内存里（不是 cookie），
+     * 用户只是把系统调成深色，回来就得重新输密码——真机实测会掉两次登录。
+     * 所以这里原地换肤，再把新值派给页面：`dashboard.html` 监听 `wb:system-theme`，
+     * 收到后切 `data-theme`，页面不重载、会话不丢。
+     */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyShellColors()
+        val dark = systemDark()
+        webView.evaluateJavascript(
+            "window.dispatchEvent(new CustomEvent('wb:system-theme',{detail:{dark:$dark}}))",
+            null,
+        )
+        // 页面没有重新加载，URL 里的 sysdark 还是旧值。这里同步标记，
+        // 否则状态轮询（render）会发现 loadedUrl != panelUrl 而立刻 loadUrl，
+        // 等于白换肤——刚保住的登录态照样没了。
+        if (loadedUrl != null) loadedUrl = panelUrl(Prefs.port(this))
     }
 
     private fun configureWebView() {
@@ -145,8 +221,8 @@ class MainActivity : Activity() {
             // 面板会把接口地址渲染成可复制的文本，混合内容放宽避免 http 资源被拦。
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         }
-        // 底色跟着系统深浅走：页面第一帧到达之前露的就是它，浅色外壳配深色页面会闪白。
-        webView.setBackgroundColor(if (systemDark()) COLOR_WEB_BG_DARK else COLOR_WEB_BG_LIGHT)
+        // 底色（页面第一帧到达之前露的那一层）统一由 applyShellColors() 设置，
+        // 深浅两档只有一处出口。
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 swipe.isRefreshing = false
@@ -250,6 +326,10 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        // 在后台被切了深浅再回来时，系统不一定会补一次 onConfigurationChanged
+        // （Activity 已 stop 的情况下）。这里比一下标记，变了就补刷，避免顶栏
+        // 停在旧配色上。
+        if (appliedDark != systemDark()) applyShellColors()
         ui.post(poller)
     }
 
@@ -725,7 +805,8 @@ class MainActivity : Activity() {
             overlay.visibility = View.GONE
             // ?sysdark= 把系统深浅色带给面板：WebView 的 prefers-color-scheme 跟的是
             // App 主题（外壳是 Light），手机切深色它照样报浅色，「跟随系统」就失效了。
-            // 系统切深浅会让 Activity 重建（configChanges 里没有 uiMode），这里会重新取值。
+            // 切深浅时 Activity 不重建（清单放行了 uiMode），页面也不重载，
+            // 新值由 onConfigurationChanged 派事件过去；这里只在首次加载时起作用。
             val target = panelUrl(port)
             if (loadedUrl != target) {
                 loadedUrl = target

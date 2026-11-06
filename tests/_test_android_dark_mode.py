@@ -8,7 +8,10 @@
 浅色。修法要三层一起改，少一层就退回原样，所以这里逐层钉住：
 
   1. 外壳（Kotlin）：读 `uiMode` 判断系统深浅，把结果拼进面板地址 `?sysdark=1|0`；
-     系统切换会重建 Activity，地址因此重新取值，不需要额外监听。
+     清单放行 `uiMode`，系统切换只走 `onConfigurationChanged` 原地换色，不重建
+     Activity——重建会连 WebView 一起销毁，而面板的登录态活在页面内存里（不是
+     cookie），用户只是把手机调成深色，回来就得重新输密码（真机实测掉了两次）。
+     换色之后再把新值用 `wb:system-theme` 派给页面，页面不重载、会话不丢。
   2. 页面（dashboard.html）：首帧脚本认这个参数并**缓存**（面板里有几处
      `history.replaceState` 会重写 URL，每次现读会把参数弄丢），媒体查询降级为兜底；
      另外认 `wb:system-theme` 事件，供原生运行中推送。
@@ -59,17 +62,32 @@ class ShellPassesSystemDark(unittest.TestCase):
                          "旧的裸地址会让面板拿不到系统深浅色")
 
     def test_webview_background_follows_system(self):
-        self.assertRegex(self.src, r"setBackgroundColor\(if \(systemDark\(\)\)",
+        # 底色挪进了 applyShellColors()：深浅两档只有那一处出口，
+        # 重建与原地换肤都走它，不可能一边刷一边漏。
+        body = re.search(r"private fun applyShellColors\(\)\s*\{(.*?)\n    \}", self.src, re.S)
+        self.assertIsNotNone(body, "找不到 applyShellColors()，外壳配色没有统一出口")
+        self.assertRegex(body.group(1), r"setBackgroundColor\(if \(dark\)",
                          "WebView 首帧底色要跟着系统走，深色下不能先闪一块白")
         self.assertIn("COLOR_WEB_BG_DARK", self.src)
 
-    def test_activity_is_recreated_on_night_change(self):
+    def test_night_change_recolors_without_recreate(self):
         manifest = read(os.path.join(ANDROID, "app", "src", "main", "AndroidManifest.xml"))
         activity = re.search(r"<activity[^>]*MainActivity[^>]*>", manifest, re.S)
         self.assertIsNotNone(activity)
-        self.assertNotIn("uiMode", activity.group(0),
-                         "configChanges 里不能有 uiMode：要让它重建 Activity，"
-                         "否则面板地址不会重新取系统值，切深色后界面停在旧主题")
+        self.assertIn("uiMode", activity.group(0),
+                      "configChanges 必须放行 uiMode：不放行就会重建 Activity，"
+                      "WebView 一起销毁，面板登录态（页面内存里的 token）直接丢")
+
+    def test_config_change_repaints_and_notifies_page(self):
+        # 三条缺一不可：重刷原生那一圈、把新值派给页面、同步 loadedUrl。
+        # 少最后一条时状态轮询会发现 URL 变了而 loadUrl，刚保住的会话照样没。
+        body = re.search(r"override fun onConfigurationChanged\(.*?\n    \}", self.src, re.S)
+        self.assertIsNotNone(body, "没有 onConfigurationChanged，切深浅后外壳会停在旧配色")
+        text = body.group(0)
+        self.assertIn("applyShellColors()", text, "切深浅要重刷外壳颜色")
+        self.assertIn("wb:system-theme", text, "要把新值派给页面，页面才知道换肤")
+        self.assertRegex(text, r"loadedUrl = panelUrl\(",
+                         "要同步 loadedUrl，否则轮询会立刻 loadUrl，等于白换肤")
 
 
 class PanelHonoursNativeValue(unittest.TestCase):

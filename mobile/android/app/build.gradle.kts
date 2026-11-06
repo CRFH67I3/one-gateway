@@ -1,4 +1,7 @@
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 plugins {
     id("com.android.application")
@@ -19,6 +22,17 @@ val versionCodeValue: Int = run {
     padded[0] * 10000 + padded[1] * 100 + padded[2]
 }
 
+// 版本名的最后一段用构建日期（8 位 yyyyMMdd），前两段仍跟 wb_proxy.py。
+// 好处是一眼能看出这个包是哪天出的，跨天自然递增；坏处是无法手写版本名，
+// 但这本来就是构建产物的标识，不该手工维护。
+// versionCode 不跟着日期走：它仍由 server_version 算，覆盖安装不吃亏，
+// 也不会因为同一天多次构建而产生歧义。
+val buildDate: String = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
+val versionNameValue: String = run {
+    val parts = serverVersion.split(".")
+    if (parts.size >= 2) "${parts[0]}.${parts[1]}.$buildDate" else "$serverVersion.$buildDate"
+}
+
 android {
     namespace = "com.workbuddy2api.hub"
     // 跟着本机装的最高一档平台走（当前是 Android 17 / API 37）。compileSdk 只影响
@@ -35,8 +49,8 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = versionCodeValue
-        versionName = serverVersion
-        resValue("string", "app_version_name", serverVersion)
+        versionName = versionNameValue
+        resValue("string", "app_version_name", versionNameValue)
     }
 
     // 每个 ABI 单独出包（真机 arm64-v8a / 模拟器 x86_64），包体从 35MB 降到 23MB 左右。

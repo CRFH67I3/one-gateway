@@ -32,6 +32,7 @@
 """
 import os
 import threading
+import time
 
 _LOCK_SUFFIX = ".lock"
 _THREAD_LOCK = threading.Lock()
@@ -63,6 +64,24 @@ except ImportError:                                     # POSIX：单次 write �
         return None
 
 
+def _open_lock_file(path, attempts=100):
+    """打开（必要时创建）锁文件，失败就短暂重试。
+
+    Windows 上两个进程同时 `O_CREAT` 同一个文件时，后到的一方偶发拿到
+    `ERROR_ACCESS_DENIED`（`Errno 13`）——实测 4 进程 × 120 行、8 轮里出现 2 次，
+    每次正好丢一行：`append_line` 的 except 把整行让给了 `error_hook`，账本上
+    就少一笔。冲突窗口是毫秒级的，重试即可，绝不能放弃（放弃等于丢账）。
+    """
+    err = None
+    for _ in range(attempts):
+        try:
+            return os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
+        except OSError as exc:
+            err = exc
+            time.sleep(0.002)
+    raise err
+
+
 def append_line(path, text, error_hook=None):
     """把 `text`（一行，不含换行）原子地追加到 `path`，返回写入字节数。
 
@@ -75,7 +94,7 @@ def append_line(path, text, error_hook=None):
         if directory:
             os.makedirs(directory, exist_ok=True)
         with _THREAD_LOCK:
-            lock_fd = os.open(path + _LOCK_SUFFIX, os.O_RDWR | os.O_CREAT, 0o644)
+            lock_fd = _open_lock_file(path + _LOCK_SUFFIX)
             try:
                 _lock(lock_fd)
                 try:
