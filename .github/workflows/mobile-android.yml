@@ -60,6 +60,10 @@ jobs:
         run: |
           python -m compileall -q wb_proxy.py wb_accounts.py wb_settings.py \
             mobile/shared mobile/android/app/src/main/python
+          # compileall 会在被编译的源码旁边留 __pycache__。这个目录稍后会被
+          # Chaquopy 整个打进 assets/chaquopy/app.imy，所以编译完必须清掉——
+          # 否则 APK 里会多出一份构建脏东西（测试套件也可能顺手写一份）。
+          rm -rf mobile/android/app/src/main/python/__pycache__
           # 「自动导入最新版」的接线与解压契约：按钮还在、下载地址首选镜像、
           # ZIP 结构与解压逻辑对得上。纯离线、亚秒级，编译前先把这类低级错误拦掉。
           python tests/_test_android_auto_import.py

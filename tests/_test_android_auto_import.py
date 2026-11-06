@@ -32,6 +32,11 @@ PY_RUNTIME_DIR = os.path.join(ANDROID, "app", "src", "main", "python")
 
 sys.path.insert(0, PY_RUNTIME_DIR)
 
+# 不许在源码目录留 __pycache__：这是 app/src/main/python，Gradle 会把整个目录
+# 打进 APK（Chaquopy 的 app.imy）。Python 默认 import 时就会在旁边写 .pyc，
+# 于是「跑一遍测试」会顺手往发布物里塞一份构建脏东西。
+sys.dont_write_bytecode = True
+
 import wb_hub_env  # noqa: E402
 
 PRIMARY_URL = (

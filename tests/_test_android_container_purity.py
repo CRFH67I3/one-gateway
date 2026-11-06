@@ -76,12 +76,18 @@ class SourceTreeTests(unittest.TestCase):
                              "assets/ 应当为空：APK 不带任何随包资源")
 
     def test_python_source_dir_holds_only_the_shim(self):
-        names = sorted(os.listdir(PY_DIR))
-        self.assertEqual(["wb_hub_env.py"], names,
+        names = set(os.listdir(PY_DIR))
+        # `__pycache__` 是 Python 的字节码缓存——谁 import 谁在旁边留一份，不是
+        # 「第二个模块」。但它里面只允许出现这个薄运行时的字节码：冒出别的名字，
+        # 说明有别的东西也住进了这个会被整个打进 APK 的目录。
+        names.discard("__pycache__")
+        self.assertEqual({"wb_hub_env.py"}, names,
                          "src/main/python 只允许一个薄运行时；多一个模块就是多一份代码")
-        # 编译残留会被 Chaquopy 一起塞进 app.imy（实测出现过 __pycache__/ 条目）
-        self.assertFalse(os.path.exists(os.path.join(PY_DIR, "__pycache__")),
-                         "不允许 __pycache__：那是本地跑过一遍留下的 .pyc")
+        cache = os.path.join(PY_DIR, "__pycache__")
+        if os.path.isdir(cache):
+            foreign = sorted(n for n in os.listdir(cache)
+                             if not n.startswith("wb_hub_env."))
+            self.assertEqual([], foreign, "字节码缓存里出现了别的模块")
 
 
 class ShimTests(unittest.TestCase):
