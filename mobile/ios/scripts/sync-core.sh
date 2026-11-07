@@ -38,13 +38,17 @@ if [ -n "${GATEWAY_CORE_ZIP:-}" ]; then
     CORE_ZIP=$GATEWAY_CORE_ZIP
 else
     command -v curl >/dev/null 2>&1 || { echo "error: 需要 curl 下载网关项目 ZIP" >&2; exit 1; }
-    CORE_ZIP=$(mktemp /tmp/gateway-core.XXXXXX.zip)
+    # 模板的 X 必须放在末尾：BSD mktemp（macOS CI）不接受 .XXXXXX.zip 这种中段模板。
+    CORE_ZIP=$(mktemp "${TMPDIR:-/tmp}/gateway-core.XXXXXX")
     curl -fsSL --retry 3 --connect-timeout 20 --max-time 180 \
         -o "$CORE_ZIP" "$CORE_ZIP_URL" \
         || { echo "error: 下载网关项目失败：$CORE_ZIP_URL" >&2; exit 1; }
 fi
 
-find "$DEST_APP" -maxdepth 1 -name 'wb_*.py' -delete
+# 不用 find -maxdepth / -delete：macOS 的 BSD find 两者都不支持。
+for stale in "$DEST_APP"/wb_*.py; do
+    [ -f "$stale" ] && rm -f "$stale"
+done
 rm -f "$DEST_APP/dashboard.html"
 
 python3 - "$CORE_ZIP" "$DEST_APP" <<'PY'
@@ -136,7 +140,7 @@ if [ -d "$VENDOR" ]; then
     STDLIB=$(find_stdlib "$VENDOR/lib" || find_stdlib "$VENDOR" || true)
     if [ -z "$STDLIB" ]; then
         echo "error: 在 $VENDOR 里找不到标准库（os.py），支持包结构可能变了：" >&2
-        find "$VENDOR" -maxdepth 4 -type d 2>/dev/null | head -40 >&2
+        find "$VENDOR" -type d 2>/dev/null | head -40 >&2
         exit 1
     fi
     LIB_VER=$(basename "$STDLIB")          # python3.13
