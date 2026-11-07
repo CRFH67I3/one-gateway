@@ -5,7 +5,7 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>zh_CN</string>
     <key>CFBundleDisplayName</key>
-    <string>中转网关</string>
+    <string>OneGateway</string>
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
     <key>CFBundleIdentifier</key>
@@ -61,7 +61,7 @@
          登记，否则 BGTaskScheduler.register 会直接抛异常。 -->
     <key>BGTaskSchedulerPermittedIdentifiers</key>
     <array>
-        <string>com.proxygateway.runtime.gateway</string>
+        <string>com.onegateway.host.gateway</string>
     </array>
     <!-- BGTaskScheduler 的通用前提：声明 processing 后台模式。 -->
     <key>UIBackgroundModes</key>

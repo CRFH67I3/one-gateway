@@ -30,14 +30,14 @@ val versionNameValue: String = run {
 }
 
 android {
-    namespace = "com.proxygateway.runtime"
+    namespace = "com.onegateway.host"
     // 跟着本机装的最高一档平台走（当前是 Android 17 / API 37）。compileSdk 只影响
     // 「编译器能看到哪些新 API」，运行时行为由 targetSdk 决定，所以可以放心追最新；
     // 但 AGP 对它有上限，升级平台时一起升 AGP（9.4 支持到 API 37）。
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.proxygateway.runtime"
+        applicationId = "com.onegateway.host"
         // Android 8.0（API 26）。外壳离不开的两件事都在这一档变成无条件可用：
         // 通知渠道（Channel/IMPORTANCE_LOW）与 startForegroundService()。
         // 停在 24/25 就得为它们各写一套旧路径，而 8.0 以下机型跑不动

@@ -7,7 +7,7 @@ import WidgetKit
 /// 这里只放实时活动（Live Activity）：锁屏卡片 + 灵动岛。App 图标下的桌面小组件
 /// 不做，免得用户以为要额外配置。
 @main
-struct ProxyGatewayRuntimeWidgetBundle: WidgetBundle {
+struct OneGatewayWidgetBundle: WidgetBundle {
     var body: some Widget {
         GatewayLiveActivity()
     }
@@ -81,7 +81,7 @@ private struct LockScreenCard: View {
                         .foregroundStyle(state.running ? Color.green : Color.orange)
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("中转网关")
+                        Text("OneGateway")
                             .font(.headline)
                         Text("127.0.0.1:\(state.port) · 账号 \(state.accountsReady)/\(state.accountsTotal)")
                             .font(.caption)

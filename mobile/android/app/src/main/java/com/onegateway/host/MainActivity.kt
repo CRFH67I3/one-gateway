@@ -1,4 +1,4 @@
-package com.proxygateway.runtime
+package com.onegateway.host
 
 import android.app.Activity
 import android.app.AlertDialog

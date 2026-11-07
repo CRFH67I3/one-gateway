@@ -84,7 +84,7 @@ jobs:
       - name: Syntax gate (container bridge)
         run: |
           python3 -m compileall -q \
-            mobile/shared mobile/ios/ProxyGatewayRuntime/PythonBridge
+            mobile/shared mobile/ios/OneGateway/PythonBridge
 
       # ~200MB download; cache it so repeat builds skip GitHub Releases.
       - name: Fetch embedded CPython
@@ -108,18 +108,18 @@ jobs:
         run: |
           chmod +x mobile/ios/scripts/sync-core.sh mobile/ios/scripts/install-python.sh
           mobile/ios/scripts/sync-core.sh
-          ls mobile/ios/ProxyGatewayRuntime/Resources/app | head -5
+          ls mobile/ios/OneGateway/Resources/app | head -5
           # 标准库必须落在 python/lib/pythonX.Y 这一层，否则运行时 import 全失败。
-          ls -d mobile/ios/ProxyGatewayRuntime/Resources/python/lib/python3.*
+          ls -d mobile/ios/OneGateway/Resources/python/lib/python3.*
           # 二进制扩展也必须在（_sha1/_hashlib/_socket/_ssl），它们只在设备切片的
           # lib-arm64 下，漏了就是「hashlib has no attribute sha1」。
-          ls mobile/ios/ProxyGatewayRuntime/Resources/python/lib/python3.*/lib-dynload/_sha1*.so
+          ls mobile/ios/OneGateway/Resources/python/lib/python3.*/lib-dynload/_sha1*.so
 
       # iOS 上 OpenSSL 没有系统 CA 路径，上游 HTTPS 必须靠随包的证书束。
       - name: Install CA bundle
         run: |
           set -euo pipefail
-          DEST=mobile/ios/ProxyGatewayRuntime/Resources/app
+          DEST=mobile/ios/OneGateway/Resources/app
           python3 -m pip install --quiet --disable-pip-version-check --target "$DEST" certifi
           test -f "$DEST/certifi/cacert.pem"
 
@@ -128,15 +128,15 @@ jobs:
           brew install xcodegen
           cd mobile/ios
           xcodegen generate
-          ls -d ProxyGatewayRuntime.xcodeproj
+          ls -d OneGateway.xcodeproj
 
       - name: Build (unsigned)
         run: |
           set -euo pipefail
           cd mobile/ios
           xcodebuild \
-            -project ProxyGatewayRuntime.xcodeproj \
-            -scheme ProxyGatewayRuntime \
+            -project OneGateway.xcodeproj \
+            -scheme OneGateway \
             -configuration Release \
             -destination "generic/platform=iOS" \
             -derivedDataPath build \
@@ -148,7 +148,7 @@ jobs:
       - name: Verify bundle contents
         run: |
           set -euo pipefail
-          APP="mobile/ios/build/Build/Products/Release-iphoneos/ProxyGatewayRuntime.app"
+          APP="mobile/ios/build/Build/Products/Release-iphoneos/OneGateway.app"
           # 三件套缺一不可：桥接代码/面板在 app/，标准库在 python/lib/，
           # 解释器本体在 Frameworks/。少任何一个都是启动即崩。
           test -f "$APP/app/wb_proxy.py"
@@ -175,28 +175,28 @@ jobs:
           fi
           # 实时活动：appex 必须在 PlugIns/ 里，且主包 Info.plist 声明了 Live Activity
           # 与持续后台任务的 identifier（缺任一项，锁屏/灵动岛或后台保活就是静默失效）。
-          test -d "$APP/PlugIns/ProxyGatewayRuntimeWidget.appex"
-          test -f "$APP/PlugIns/ProxyGatewayRuntimeWidget.appex/ProxyGatewayRuntimeWidget"
+          test -d "$APP/PlugIns/OneGatewayWidget.appex"
+          test -f "$APP/PlugIns/OneGatewayWidget.appex/OneGatewayWidget"
           /usr/libexec/PlistBuddy -c "Print :NSSupportsLiveActivities" "$APP/Info.plist"
           /usr/libexec/PlistBuddy -c "Print :BGTaskSchedulerPermittedIdentifiers:0" "$APP/Info.plist"
           /usr/libexec/PlistBuddy -c "Print :NSExtension:NSExtensionPointIdentifier" \
-            "$APP/PlugIns/ProxyGatewayRuntimeWidget.appex/Info.plist"
+            "$APP/PlugIns/OneGatewayWidget.appex/Info.plist"
           du -sh "$APP"
 
       - name: Package unsigned IPA
         run: |
           set -euo pipefail
           cd mobile/ios
-          APP="build/Build/Products/Release-iphoneos/ProxyGatewayRuntime.app"
+          APP="build/Build/Products/Release-iphoneos/OneGateway.app"
           rm -rf build/ipa && mkdir -p build/ipa/Payload
           cp -R "$APP" build/ipa/Payload/
           cd build/ipa
-          zip -qry "../../ProxyGatewayRuntime-${{ steps.version.outputs.value }}-unsigned.ipa" Payload
-          ls -lh "../../ProxyGatewayRuntime-${{ steps.version.outputs.value }}-unsigned.ipa"
+          zip -qry "../../OneGateway-${{ steps.version.outputs.value }}-unsigned.ipa" Payload
+          ls -lh "../../OneGateway-${{ steps.version.outputs.value }}-unsigned.ipa"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: proxy-gateway-runtime-ios
+          name: one-gateway-ios
           path: mobile/ios/*.ipa
           if-no-files-found: error
 
@@ -210,7 +210,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist-mobile
-          cp mobile/ios/*.ipa "dist-mobile/proxy-gateway-runtime-ios-${TAG}-unsigned.ipa"
+          cp mobile/ios/*.ipa "dist-mobile/one-gateway-ios-${TAG}-unsigned.ipa"
           for _ in $(seq 1 90); do
             if gh release view "$TAG" >/dev/null 2>&1; then
               gh release upload "$TAG" dist-mobile/*.ipa --clobber

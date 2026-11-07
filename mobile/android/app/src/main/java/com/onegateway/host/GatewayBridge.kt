@@ -1,4 +1,4 @@
-package com.proxygateway.runtime
+package com.onegateway.host
 
 import android.content.Context
 import com.chaquo.python.Python
@@ -193,7 +193,7 @@ object GatewayBridge {
             connection.connectTimeout = 15_000
             connection.readTimeout = 30_000
             connection.instanceFollowRedirects = false
-            connection.setRequestProperty("User-Agent", "ProxyGatewayRuntime-Android")
+            connection.setRequestProperty("User-Agent", "OneGateway-Android")
             connection.setRequestProperty("Accept", "application/zip,application/octet-stream,*/*")
             val code = connection.responseCode
             if (code in 300..399) {

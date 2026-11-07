@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ANDROID = os.path.join(ROOT, "mobile", "android")
-JAVA = os.path.join(ANDROID, "app", "src", "main", "java", "com", "proxygateway", "runtime")
+JAVA = os.path.join(ANDROID, "app", "src", "main", "java", "com", "onegateway", "host")
 PY_RUNTIME_DIR = os.path.join(ANDROID, "app", "src", "main", "python")
 
 sys.path.insert(0, PY_RUNTIME_DIR)
@@ -318,9 +318,9 @@ class BuildVariantTests(unittest.TestCase):
         self.assertIn("-keep class com.chaquo.python.** { *; }", self.rules)
         # 清单里的三个组件由系统按类名实例化
         for cls in ("HubApp", "MainActivity", "GatewayService"):
-            self.assertIn("com.proxygateway.runtime.%s { *; }" % cls, self.rules)
+            self.assertIn("com.onegateway.host.%s { *; }" % cls, self.rules)
         # 外壳其余类只保名字：不能再用「整包 { *; }」把最小化废掉
-        self.assertNotIn("-keep class com.proxygateway.runtime.** { *; }", self.rules)
+        self.assertNotIn("-keep class com.onegateway.host.** { *; }", self.rules)
 
     def test_workflow_builds_both_variants(self):
         self.assertIn(":app:assembleDebug", self.workflow)
@@ -522,7 +522,7 @@ class LiveDownloadTests(unittest.TestCase):
         tmp = tempfile.mkdtemp(prefix="wb-live-")
         try:
             request = urllib.request.Request(
-                PRIMARY_URL, headers={"User-Agent": "ProxyGatewayRuntime-Android"})
+                PRIMARY_URL, headers={"User-Agent": "OneGateway-Android"})
             with urllib.request.urlopen(request, timeout=60) as response:
                 body = response.read()
             self.assertGreater(len(body), 100 * 1024, "下载内容太小，可能是错误页")

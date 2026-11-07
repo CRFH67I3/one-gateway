@@ -19,7 +19,7 @@ set -eu
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$SCRIPT_DIR/../../.." && pwd)
-RES="$ROOT/mobile/ios/ProxyGatewayRuntime/Resources"
+RES="$ROOT/mobile/ios/OneGateway/Resources"
 DEST_APP="$RES/app"
 DEST_PY="$RES/python"
 VENDOR="$ROOT/mobile/ios/Vendor/Python.xcframework"
@@ -75,7 +75,7 @@ PY
 
 # 这两份是容器自己的桥接层，不属于网关，直接随包携带。
 cp "$ROOT/mobile/shared/wb_mobile_runtime.py" "$DEST_APP"/
-cp "$ROOT/mobile/ios/ProxyGatewayRuntime/PythonBridge/wb_hub_ios.py" "$DEST_APP"/
+cp "$ROOT/mobile/ios/OneGateway/PythonBridge/wb_hub_ios.py" "$DEST_APP"/
 
 # 交付前自检：外部核心与容器桥接层缺一不可，缺了直接让构建失败，
 # 别等 App 在手机上启动才暴露。

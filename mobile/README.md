@@ -25,7 +25,7 @@ mobile/
 │   └── wb_mobile_runtime.py     # iOS 启动器：沙盒目录、核心同步、证书、start/stop/status
 ├── android/                     # Kotlin 外壳 + Chaquopy（内嵌 CPython 3.13）
 │   ├── app/src/main/
-│   │   ├── java/com/proxygateway/runtime/
+│   │   ├── java/com/onegateway/host/
 │   │   │   ├── HubApp.kt            # Application：初始化 CPython
 │   │   │   ├── GatewayBridge.kt     # Kotlin ⇄ Python 通道、项目解压与指针、自动下载
 │   │   │   ├── GatewayService.kt    # 前台服务 + 常驻通知
@@ -37,19 +37,19 @@ mobile/
     ├── project.yml                  # XcodeGen 工程描述
     ├── scripts/sync-core.sh         # 拉取外部核心 + 铺标准库（含二进制扩展）+ 装 certifi
     ├── scripts/install-python.sh    # 构建后：lib-dynload 的 .so 转 Frameworks/*.framework
-    ├── ProxyGatewayRuntime/Sources/
+    ├── OneGateway/Sources/
     │   ├── PyBridge.swift           # CPython C API 桥（GIL、PYTHONHOME/PYTHONPATH）
     │   ├── RootViewController.swift  # WKWebView 面板 + 前后台让位
     │   ├── BackgroundKeepAlive.swift # iOS 26 持续后台任务（BGContinuedProcessingTask）
     │   ├── LiveActivityController.swift  # 锁屏/灵动岛实时活动（ActivityKit）
     │   ├── BackgroundSettingsViewController.swift  # 「后台保持」三个开关
     │   ├── CorePaths.swift          # 沙盒路径 / 外壳开关 / 局域网地址
-    │   ├── ProxyGatewayRuntime-Bridging-Header.h  # #include <Python/Python.h>
+    │   ├── OneGateway-Bridging-Header.h  # #include <Python/Python.h>
     │   └── AppDelegate.swift
     ├── Shared/GatewayActivityAttributes.swift  # 主 App 与 Widget 共享的活动定义
-    ├── ProxyGatewayRuntimeWidget/          # Widget Extension：Live Activity 的锁屏/灵动岛视图
-    ├── ProxyGatewayRuntime/PythonBridge/wb_hub_ios.py
-    └── ProxyGatewayRuntime/Resources/       # 构建时生成（不入库）
+    ├── OneGatewayWidget/          # Widget Extension：Live Activity 的锁屏/灵动岛视图
+    ├── OneGateway/PythonBridge/wb_hub_ios.py
+    └── OneGateway/Resources/       # 构建时生成（不入库）
         ├── app/                      # 核心代码 + 桥接层 + certifi → PYTHONPATH
         └── python/lib/python3.13/    # CPython 标准库 → PYTHONHOME
 ```
@@ -184,7 +184,7 @@ App 内菜单 →「后台保持」有三个开关，对应三种手段：
 - 实时活动的锁屏与灵动岛是**同一张活动**，只能在 App 前台 `request`。所以「锁屏实时活动」
   实际是总开关，关掉即 `end`；「灵动岛显示」通过 `ContentState` 里的标志位控制视图，
   这样不用开 App Group（Widget Extension 直接读 `context.state`）；
-- Live Activity 的视图在 `ProxyGatewayRuntimeWidget` 这个 app-extension 里，主包必须把
+- Live Activity 的视图在 `OneGatewayWidget` 这个 app-extension 里，主包必须把
   `.appex` 嵌进 `PlugIns/`，否则卡片不会出现；
 - 未签名 IPA 里 appex 也是未签名的，用 AltStore / Sideloadly 重签时会一起处理嵌套 bundle；
 - 主 target 的部署版本是 **iOS 15**，而 ActivityKit 要 16.1，所以 `GatewayActivityAttributes`
@@ -389,10 +389,10 @@ python mobile/android/tools/e2e_auto_import.py --keep # 结束后不停 App，�
 # 需要 macOS + Xcode；CI 用 macos-15 + Xcode 26（iOS 26 的持续后台任务要用新 SDK）
 cd mobile/ios
 ./scripts/sync-core.sh                       # 拉取外部核心 + 合并标准库/二进制扩展 + 装 certifi
-brew install xcodegen && xcodegen generate   # 生成 ProxyGatewayRuntime.xcodeproj
+brew install xcodegen && xcodegen generate   # 生成 OneGateway.xcodeproj
 # Vendor/Python.xcframework 需先下载（CI 会自动做）：
 #   https://github.com/beeware/Python-Apple-support/releases/download/3.13-b18/Python-3.13-iOS-support.b18.tar.gz
-open ProxyGatewayRuntime.xcodeproj                  # 选自己的 Team 后可真机运行
+open OneGateway.xcodeproj                  # 选自己的 Team 后可真机运行
 ```
 
 > 构建时还有一步 `install-python.sh`（`postBuildScripts` 里，自动执行），把
@@ -423,8 +423,8 @@ open ProxyGatewayRuntime.xcodeproj                  # 选自己的 Team 后可�
 | 工作流 | 触发 | 产物 |
 |---|---|---|
 | `.github/workflows/tests.yml` | push / PR | 6 个容器套件，Python 3.9 / 3.12 × Ubuntu / Windows |
-| `.github/workflows/mobile-android.yml` | 改动 `mobile/**` | `proxy-gateway-runtime-android`（arm64 / x64 各一份 debug + release） |
-| `.github/workflows/mobile-ios.yml` | 改动 `mobile/**` | `proxy-gateway-runtime-ios`（未签名 IPA） |
+| `.github/workflows/mobile-android.yml` | 改动 `mobile/**` | `one-gateway-android`（arm64 / x64 各一份 debug + release） |
+| `.github/workflows/mobile-ios.yml` | 改动 `mobile/**` | `one-gateway-ios`（未签名 IPA） |
 
 两条移动端流水线先做语法门禁（只编译容器桥接层）。Android 断言 **APK 里没有
 网关文件**（`*.py` / `dashboard.html` / `assets/core/`）；iOS 断言

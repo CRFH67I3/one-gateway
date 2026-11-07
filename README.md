@@ -1,4 +1,4 @@
-# Proxy Gateway Runtime · 中转网关运行时
+# OneGateway
 
 > **本仓库只包含移动端容器外壳，不包含网关。**
 > 网关实现（`wb_*.py`、`dashboard.html`、账号池、调度、计费、面板）属于外部项目，
@@ -7,8 +7,9 @@
 把一部 Android / iOS 手机变成可以运行外部网关项目的运行时：内嵌 CPython、前台服务与
 后台保活、WebView 面板、项目导入与更新、系统深浅色跟随、通知与实时活动。
 
-「中转」描述的是**被装载的那个网关**做什么；「运行时」才是这个仓库本身——它只负责
-装载、启动、托管与展示，不含任何网关业务逻辑。
+名字里的 Gateway 指的是**被装载的那份外部网关项目**，不是这个仓库；仓库本身是宿主，
+只负责装载、启动、托管与展示，不含任何网关业务逻辑。名字不再暗示「仓库自带网关」，
+也不再绑定某一种网关的形态（中转、转发、代理都可以装）。
 
 ## 边界
 
@@ -31,7 +32,7 @@ ZIP 来自哪里、里面是什么版本，容器不关心；换网关不需要�
    默认下载 `ardeyouxipianyi/workbuddy2api-hub` 的 `main` 分支快照，首选 gh-proxy
    镜像，失败依次退到第二个镜像、直连 github.com；下载完走与手动导入完全相同的
    解压 / 切指针 / 重启流程。想换成自己的仓库或分支，改
-   `mobile/android/app/src/main/java/com/proxygateway/runtime/GatewayBridge.kt`
+   `mobile/android/app/src/main/java/com/onegateway/host/GatewayBridge.kt`
    里的 `REPO` / `BRANCH` 两个常量即可。
 2. **手动导入（选择压缩包）** — 选一份本地 ZIP，离线可用，也能装任意版本或回退旧版。
    菜单里叫「手动更新」。
@@ -95,7 +96,7 @@ Ubuntu / Windows）、`mobile-android`、`mobile-ios`。
 
 ## 注意
 
-- 包标识是 `com.proxygateway.runtime`；从旧包名升级的设备必须卸载重装。
+- 包标识是 `com.onegateway.host`；从旧包名升级的设备必须卸载重装。
 - iOS 产物是**未签名 IPA**，需自行签名；仓库不含 App 图标。
 - 容器不校验导入包的签名或来源，只做路径安全校验（拒绝 `../` 与绝对路径）。
   请自行确认 ZIP 的来源。

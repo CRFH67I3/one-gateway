@@ -528,7 +528,7 @@ final class RootViewController: UIViewController {
         灵动岛显示进度卡片）；也可以在「后台保持」里打开自己的锁屏/灵动岛实时活动。
         更早的系统上，进入后台 20 秒后会暂停监听，回到前台自动恢复。
         """
-        let alert = UIAlertController(title: "中转网关", message: message, preferredStyle: .alert)
+        let alert = UIAlertController(title: "OneGateway", message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "好", style: .default, handler: nil))
         present(alert, animated: true)
     }

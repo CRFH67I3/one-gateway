@@ -1,9 +1,23 @@
-# 变更记录 · Proxy Gateway Runtime（容器）
+# 变更记录 · OneGateway（容器）
 
 本文件只记录**容器仓库本身**的变更。网关实现、面板与协议行为的变更记录在外部
 网关项目里，不属于本仓库。
 
 ## 未发布 / Unreleased
+
+### 更名：Proxy Gateway Runtime → OneGateway
+
+按项目目标重新定名：仓库只是装载外部网关的宿主，不含网关实现，名字的主语不该是
+「网关运行时」。
+
+- 英文项目名与 App 展示名统一为 **OneGateway**；仓库改名 `CRFH67I3/one-gateway`，
+  旧地址由 GitHub 自动重定向。
+- Android `applicationId` / `namespace` 与 iOS bundle id 统一为 `com.onegateway.host`；
+  Kotlin 包路径改为 `com/onegateway/host/`，iOS target、目录与产物改为 `OneGateway` /
+  `OneGatewayWidget`。**已装旧包的设备需卸载重装**，旧包收不到新版本。
+- CI 产物改名 `one-gateway-android` / `one-gateway-ios`；外部网关源
+  `ardeyouxipianyi/workbuddy2api-hub`、两个导入入口与全部交互保持不变。
+- 历史名称（WorkBuddy2API-Hub、Proxy Gateway Runtime）保留在下方记录里，不再回改。
 
 ### 仓库收敛为纯容器：移除全部网关内容
 

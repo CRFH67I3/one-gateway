@@ -26,7 +26,7 @@ final class Diagnostics {
     /// 信号处理器里只能用 `write(2)` 这类异步信号安全的调用，文件描述符必须提前开好。
     static var crashFD: Int32 = -1
 
-    private let queue = DispatchQueue(label: "com.proxygateway.runtime.diag")
+    private let queue = DispatchQueue(label: "com.onegateway.host.diag")
     private let startedAt = Date()
     private var logURL: URL?
     private var markerURL: URL?

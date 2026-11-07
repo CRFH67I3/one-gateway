@@ -1,4 +1,4 @@
-package com.proxygateway.runtime
+package com.onegateway.host
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -25,9 +25,9 @@ import java.util.concurrent.Executors
 class GatewayService : Service() {
 
     companion object {
-        const val ACTION_START = "com.proxygateway.runtime.action.START"
-        const val ACTION_STOP = "com.proxygateway.runtime.action.STOP"
-        const val ACTION_RESTART = "com.proxygateway.runtime.action.RESTART"
+        const val ACTION_START = "com.onegateway.host.action.START"
+        const val ACTION_STOP = "com.onegateway.host.action.STOP"
+        const val ACTION_RESTART = "com.onegateway.host.action.RESTART"
 
         private const val CHANNEL_ID = "gateway"
         private const val NOTIFICATION_ID = 8788

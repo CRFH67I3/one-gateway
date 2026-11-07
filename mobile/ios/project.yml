@@ -1,9 +1,9 @@
 # XcodeGen 工程描述：用文本定义 iOS 工程，CI 里 `xcodegen generate` 出 .xcodeproj，
 # 避免把几千行的 pbxproj 二进制式文件塞进仓库、也避免合并冲突。
-name: ProxyGatewayRuntime
+name: OneGateway
 
 options:
-  bundleIdPrefix: com.proxygateway
+  bundleIdPrefix: com.onegateway
   deploymentTarget:
     iOS: "15.0"
   createIntermediateGroups: true
@@ -27,12 +27,12 @@ targets:
   # 实时活动（Live Activity）的 Widget Extension：锁屏卡片 + 灵动岛。
   # 单独一个 extension target 是 ActivityKit 的硬要求，App 内没法直接画锁屏卡片。
   # 部署版本单独提到 16.1：Live Activity 就是从这个版本开始有的，主 App 仍保持 15。
-  ProxyGatewayRuntimeWidget:
+  OneGatewayWidget:
     type: app-extension
     platform: iOS
     deploymentTarget: "16.1"
     sources:
-      - path: ProxyGatewayRuntimeWidget
+      - path: OneGatewayWidget
         # 这个 plist 走 INFOPLIST_FILE，不能再当资源复制，否则 "Multiple commands produce Info.plist"。
         excludes:
           - "Info.plist"
@@ -40,28 +40,28 @@ targets:
       - path: Shared
     settings:
       base:
-        INFOPLIST_FILE: ProxyGatewayRuntimeWidget/Info.plist
+        INFOPLIST_FILE: OneGatewayWidget/Info.plist
         GENERATE_INFOPLIST_FILE: "NO"
-        PRODUCT_BUNDLE_IDENTIFIER: com.proxygateway.runtime.widget
-        PRODUCT_NAME: ProxyGatewayRuntimeWidget
+        PRODUCT_BUNDLE_IDENTIFIER: com.onegateway.host.widget
+        PRODUCT_NAME: OneGatewayWidget
         SKIP_INSTALL: "YES"
         TARGETED_DEVICE_FAMILY: "1,2"
 
-  ProxyGatewayRuntime:
+  OneGateway:
     type: application
     platform: iOS
     sources:
-      - path: ProxyGatewayRuntime/Sources
+      - path: OneGateway/Sources
       # 实时活动的共享定义（与 Widget Extension 同一个文件）。
       - path: Shared
       # 两个文件夹引用，整个目录原样进包，与 CPython 官方 iOS 指南的布局一一对应：
       #   Resources/app     → 包内 app/    可导入的 Python 代码（PYTHONPATH）
       #   Resources/python  → 包内 python/ CPython 标准库（PYTHONHOME，须保留
       #                                    lib/pythonX.Y 这一层，getpath 只认这个形状）
-      - path: ProxyGatewayRuntime/Resources/app
+      - path: OneGateway/Resources/app
         type: folder
         buildPhase: resources
-      - path: ProxyGatewayRuntime/Resources/python
+      - path: OneGateway/Resources/python
         type: folder
         buildPhase: resources
     dependencies:
@@ -70,7 +70,7 @@ targets:
         embed: true
         codeSign: true
       # appex 必须嵌入主包 PlugIns/，否则锁屏与灵动岛都不会出现卡片。
-      - target: ProxyGatewayRuntimeWidget
+      - target: OneGatewayWidget
         embed: true
     preBuildScripts:
       - name: Sync gateway core
@@ -90,14 +90,14 @@ targets:
           "$SRCROOT/scripts/install-python.sh"
     settings:
       base:
-        INFOPLIST_FILE: ProxyGatewayRuntime/Info.plist
+        INFOPLIST_FILE: OneGateway/Info.plist
         GENERATE_INFOPLIST_FILE: "NO"
-        PRODUCT_BUNDLE_IDENTIFIER: com.proxygateway.runtime
-        PRODUCT_NAME: ProxyGatewayRuntime
+        PRODUCT_BUNDLE_IDENTIFIER: com.onegateway.host
+        PRODUCT_NAME: OneGateway
         TARGETED_DEVICE_FAMILY: "1,2"
         # CPython 的 C API 通过桥接头暴露，走官方文档给的 `#include <Python/Python.h>`
         # 路径，不依赖 Swift 能否 `import Python`。
-        SWIFT_OBJC_BRIDGING_HEADER: ProxyGatewayRuntime/Sources/ProxyGatewayRuntime-Bridging-Header.h
+        SWIFT_OBJC_BRIDGING_HEADER: OneGateway/Sources/OneGateway-Bridging-Header.h
         # 注意：不要再手动加 Python.xcframework 的 FRAMEWORK_SEARCH_PATHS。
         # Xcode 会把切片里的 Python.framework 复制到 $(BUILT_PRODUCTS_DIR) 并自动加进
         # 搜索路径；再指一份 Vendor 下的副本会让 clang 同时看到两个

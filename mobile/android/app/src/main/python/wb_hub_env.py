@@ -104,7 +104,7 @@ def _prune_sys_path(core, projects_dir):
 def _find_root(base):
     """在解压目录里找项目根。
 
-    GitHub 的 Download ZIP 会多套一层 `proxy-gateway-runtime-main/`，直接解压出来
+    GitHub 的 Download ZIP 会多套一层 `workbuddy2api-hub-main/`，直接解压出来
     的目录本身不含 wb_proxy.py，所以要往下探一层（也只探一层：再深就不是
     仓库结构了，多半是用户压错了东西）。
     """

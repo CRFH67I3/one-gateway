@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">中转网关</string>
+    <string name="app_name">OneGateway</string>
     <string name="menu_more">更多</string>
 
     <!-- 状态栏 -->
@@ -37,7 +37,7 @@
     <string name="update_failed">更新失败：%1$s</string>
 
     <!-- 通知 -->
-    <string name="notif_title">中转网关</string>
+    <string name="notif_title">OneGateway</string>
     <string name="notif_channel">网关运行状态</string>
     <string name="notif_channel_desc">常驻通知，用于保持网关在后台可用</string>
     <string name="notif_starting">正在启动…</string>

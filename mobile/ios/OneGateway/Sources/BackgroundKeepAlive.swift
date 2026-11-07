@@ -16,7 +16,7 @@ import Foundation
 final class BackgroundKeepAlive {
 
     static let shared = BackgroundKeepAlive()
-    static let taskIdentifier = "com.proxygateway.runtime.gateway"
+    static let taskIdentifier = "com.onegateway.host.gateway"
 
     /// 一片进度对应 30 分钟：跑满一片就再续一片，进度条单调递增、永远到不了 100%
     /// （到 100% 会被系统当成任务完成而结束后台时间）。
@@ -64,7 +64,7 @@ final class BackgroundKeepAlive {
         guard #available(iOS 26.0, *) else { return }
         let request = BGContinuedProcessingTaskRequest(
             identifier: Self.taskIdentifier,
-            title: "中转网关",
+            title: "OneGateway",
             subtitle: "正在后台保持监听…"
         )
         // .queue：系统忙时排队等；.fail 会直接丢弃，后台保活就断了，所以用默认的排队。
@@ -112,7 +112,7 @@ final class BackgroundKeepAlive {
         // 直接在原地 scheduledTimer 会得到一个永远不触发的计时器。统一回主线程。
         DispatchQueue.main.async { [weak self] in
             guard let self, self.isRunning else { return }
-            task.updateTitle("中转网关", subtitle: "后台运行中 · 127.0.0.1:\(Settings.port)")
+            task.updateTitle("OneGateway", subtitle: "后台运行中 · 127.0.0.1:\(Settings.port)")
             self.ticker?.invalidate()
             self.ticker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
                 self?.tick()
@@ -134,7 +134,7 @@ final class BackgroundKeepAlive {
         // 每秒刷一次字幕太吵，也没必要；5 秒一次足够让系统知道任务还活着。
         if elapsed % 5 == 0 {
             continued.updateTitle(
-                "中转网关",
+                "OneGateway",
                 subtitle: "后台运行 \(Self.elapsedText(elapsed)) · 127.0.0.1:\(Settings.port)"
             )
         }

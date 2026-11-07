@@ -36,7 +36,7 @@ final class PyBridge {
     /// 和回前台的 `start`（userInitiated 线程）可能同时进 CPython，甚至后到的 `stop`
     /// 把刚起来的监听又关掉。GIL 保证内存安全，但保证不了「先 start 再 stop」这个
     /// 业务顺序，也不会阻止 `socketserver.shutdown()` 在错误的时机阻塞。
-    private let queue = DispatchQueue(label: "com.proxygateway.runtime.python")
+    private let queue = DispatchQueue(label: "com.onegateway.host.python")
 
     /// 初始化解释器。必须在调用任何 Python 动作之前完成，且只做一次。
     ///

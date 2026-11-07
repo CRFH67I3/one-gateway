@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "ProxyGatewayRuntime"
+rootProject.name = "OneGateway"
 include(":app")

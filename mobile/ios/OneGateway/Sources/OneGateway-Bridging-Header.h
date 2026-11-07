@@ -1,5 +1,5 @@
 //
-//  ProxyGatewayRuntime-Bridging-Header.h
+//  OneGateway-Bridging-Header.h
 //
 //  把 CPython 的 C API 直接暴露给 Swift。
 //

@@ -27,7 +27,7 @@ import zipfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ANDROID = os.path.join(ROOT, "mobile", "android")
 MAIN = os.path.join(ANDROID, "app", "src", "main")
-JAVA = os.path.join(MAIN, "java", "com", "proxygateway", "runtime")
+JAVA = os.path.join(MAIN, "java", "com", "onegateway", "host")
 PY_DIR = os.path.join(MAIN, "python")
 ASSETS = os.path.join(MAIN, "assets")
 SHIM = os.path.join(PY_DIR, "wb_hub_env.py")
