@@ -151,6 +151,15 @@ android {
     // AGP 9 的内建 Kotlin 把 jvmTarget 默认对齐到 targetCompatibility（上面是 17），
     // 所以不再需要 android.kotlinOptions——那个 DSL 在内建 Kotlin 下已删除。
     packaging {
+        // Go 网关以 libgateway.so 之名放在 jniLibs/<abi>/ 下，运行时由
+        // GoGateway 用 ProcessBuilder 从 nativeLibraryDir 直接 exec。
+        // AGP 4.2 起 useLegacyPackaging 取代了清单里的 extractNativeLibs；
+        // 默认 false 表示 .so 不解压、直接从 APK 映射，那样就没有可 exec 的
+        // 文件路径了。这里必须让安装器把它解压到只读的 /data/app/.../lib/，
+        // 标签 apk_data_file 才允许执行（可写的 filesDir 反而被 W^X 禁止）。
+        jniLibs {
+            useLegacyPackaging = true
+        }
         resources.excludes += setOf(
             "META-INF/LICENSE*",
             "META-INF/NOTICE*",

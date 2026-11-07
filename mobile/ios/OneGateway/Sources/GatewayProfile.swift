@@ -2,11 +2,13 @@ import Foundation
 
 /// 两套外部网关的接入契约，与 Android 的 `GatewayProfile.kt` 逐字对齐。
 ///
-/// iOS 只能在进程内跑签名进包的 CPython，所以：
-///  * Python 形态（wb_proxy.py + dashboard.html）照旧本地托管；
-///  * Go 形态（workbuddy2api-panel，单二进制）不可能在 App 内执行，只能走
-///    「远程接入」——网关跑在电脑 / 服务器 / 同网络的另一台设备上，容器只
-///    负责显示它的 `/panel/` 面板与探活 `/healthz`。
+/// iOS 只允许运行签名进包的代码，所以两种形态都在**进程内**本地运行：
+///  * Python 形态（wb_proxy.py + dashboard.html）：构建期注入 Resources/app，
+///    由内嵌 CPython 托管，可随包更新；
+///  * Go 形态（workbuddy2api-panel）：构建期用 -buildmode=c-archive 编成静态库
+///    静态链接进 App，由 GoBridge 起 goroutine 跑 http.Server。导入的 ZIP 只用于
+///    确认形态与版本，不能替换二进制。
+///  * 仍可在「远程网关接入」里连到别处已运行的实例，此时本机两种都不托管。
 ///
 /// 契约差异集中在下面这几个函数里，改一种形态不用翻遍整个 ViewController：
 /// 面板路径、探活路径、健康字段、默认端口、主题脚本、地址规范化。
@@ -24,8 +26,10 @@ enum GatewayProfile {
     static func label(_ value: String) -> String { value == go ? "Go 网关" : "Python 网关" }
 
     static var remote: Bool { Settings.remoteEnabled }
-    /// 本地模式固定是 Python 核心；远程模式由用户在设置里选形态。
-    static var kind: String { Settings.remoteEnabled ? Settings.remoteKind : python }
+    /// 本地模式由用户在菜单里选形态（默认 Python），远程模式用远程设置里的形态。
+    static var kind: String { Settings.remoteEnabled ? Settings.remoteKind : Settings.localKind }
+    /// Go 型且没开远程 = 本机运行随包签名的 Go 静态库。
+    static var isLocalGo: Bool { !remote && Settings.localKind == go }
 
     /// 接受 `127.0.0.1:7863`、`192.168.1.5`、完整 URL；缺端口补该形态默认值。
     /// 允许 https 是为了接公网反代；局域网 http 由 Info.plist 的

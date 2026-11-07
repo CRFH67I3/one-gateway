@@ -36,7 +36,7 @@ final class RootViewController: UIViewController {
     private var lastNote = "正在启动"
 
     /// 面板与 API 地址统一由 GatewayProfile 按形态给出：
-    /// 本地 Python 是 `/` + /health，远程 Go 是 `/panel/` + /healthz。
+    /// 本地 Python 是 `/` + /health，Go 是 `/panel/` + /healthz（本机与远程同路径）。
     private var baseURL: String { GatewayProfile.panelBase }
     private var apiBase: String { GatewayProfile.apiBase }
     private var systemDark: Bool { traitCollection.userInterfaceStyle == .dark }
@@ -239,6 +239,11 @@ final class RootViewController: UIViewController {
             refreshHealth()
             return
         }
+        if GatewayProfile.isLocalGo {
+            // Go 网关被 pauseGateway 停过；重新起一个 goroutine 并立刻探活。
+            startLocalGo()
+            return
+        }
         spinner.startAnimating()
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
@@ -262,6 +267,13 @@ final class RootViewController: UIViewController {
         guard !GatewayProfile.remote else { return }
         // 已经回到前台就别再停了：后台计时器/后台任务到期通知可能晚到一步。
         guard bootstrapped, !isForeground else { return }
+        if GatewayProfile.isLocalGo {
+            lastRunning = false
+            lastNote = "已暂停，回到前台自动恢复"
+            syncLiveActivity(force: true)
+            stopLocalGo()
+            return
+        }
         lastRunning = false
         lastNote = "已暂停，回到前台自动恢复"
         Diagnostics.shared.note("pauseGateway")
@@ -287,6 +299,27 @@ final class RootViewController: UIViewController {
 
     // MARK: - 网关
 
+    /// Go 型本机运行：静态库在进程内起 goroutine，不碰 CPython 解释器。
+    /// 改端口/局域网/形态时都用同一条路径重启，避免两套生命周期各自漂移。
+    private func startLocalGo(port: Int? = nil, lan: Bool? = nil) {
+        let ok = GoBridge.shared.start(port: port ?? Settings.port, lan: lan ?? Settings.lan)
+        bootstrapped = true
+        loadedURL = nil
+        // 启动要花几秒（读配置、账号池、预热目录）。不把这两个值清掉的话，
+        // 旧形态留下的 lastRunning=true 会让连续三次探活失败触发 resumeGateway，
+        // 在 Go 还在初始化时又重启一遍，形成来回抢端口的循环。
+        healthFailures = 0
+        lastRunning = false
+        Diagnostics.shared.note("GoBridge.start ok=\(ok)")
+        if !ok { toast("Go 网关配置写入失败") }
+        refreshHealth()
+    }
+
+    private func stopLocalGo() {
+        GoBridge.shared.stop()
+        Diagnostics.shared.note("GoBridge.stop")
+    }
+
     private func payload(port: Int? = nil, lan: Bool? = nil) -> [String: Any] {
         ["core": paths.bundleCore,
          "data": paths.data,
@@ -302,6 +335,12 @@ final class RootViewController: UIViewController {
         if GatewayProfile.remote {
             bootstrapped = true
             refreshHealth()
+            return
+        }
+        if GatewayProfile.isLocalGo {
+            // 随包签名的 Go 静态库在进程内跑，不需要 CPython bootstrap。
+            spinner.stopAnimating()
+            startLocalGo()
             return
         }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -328,6 +367,13 @@ final class RootViewController: UIViewController {
             // 远程模式下改端口只影响「本机托管」那一侧；这里只需按当前地址重探一次。
             loadedURL = nil
             refreshHealth()
+            return
+        }
+        if GatewayProfile.isLocalGo {
+            // 端口变了要换 listen：先取消旧 goroutine，再按新端口起一份。
+            stopLocalGo()
+            startLocalGo(port: port, lan: lan)
+            reloadDashboard()
             return
         }
         spinner.startAnimating()
@@ -477,6 +523,9 @@ final class RootViewController: UIViewController {
         sheet.addAction(UIAlertAction(title: "远程网关接入…", style: .default) { [weak self] _ in
             self?.showRemoteSettings()
         })
+        sheet.addAction(UIAlertAction(title: "本机网关形态…", style: .default) { [weak self] _ in
+            self?.showLocalKindSettings()
+        })
         let lanTitle = Settings.lan ? "关闭局域网访问" : "开启局域网访问"
         sheet.addAction(UIAlertAction(title: lanTitle, style: .default) { [weak self] _ in
             guard let self else { return }
@@ -533,14 +582,14 @@ final class RootViewController: UIViewController {
         present(alert, animated: true)
     }
 
-    /// 远程接入设置：一个地址输入框 + 三个动作，覆盖两种形态与「切回本地」。
+    /// 远程接入设置：一个地址输入框 + 两个连接动作 + 切回本机。
     ///
-    /// iOS 只允许运行签名进包的代码，Go 单二进制不可能在 App 内执行，所以这类
-    /// 网关只能远程接入；Python 网关既能本地托管，也能这样接到别的设备上。
+    /// 两种网关现在都能在本机运行（Python 走 CPython，Go 走随包签名的静态库）；
+    /// 远程接入是可选的连接方式，用于连电脑/服务器上已运行的实例。
     private func showRemoteSettings() {
         let alert = UIAlertController(
             title: "远程网关接入",
-            message: "Go 单二进制无法在 App 内执行：把网关跑在电脑、服务器或同一网络的设备上，填它的地址。Python 网关也可以这样接入。\n\n留空时按形态用默认端口（Go 7863 / Python 8788）。",
+            message: "两种网关默认都在本机运行。需要连电脑、服务器或同一网络上已运行的实例时，在这里填它的地址。\n\n留空时按形态用默认端口（Go 7863 / Python 8788）。",
             preferredStyle: .alert)
         alert.addTextField { field in
             field.placeholder = "127.0.0.1:7863"
@@ -557,14 +606,45 @@ final class RootViewController: UIViewController {
             self?.connectRemote(raw: alert?.textFields?.first?.text ?? "",
                                 kind: GatewayProfile.python)
         })
-        alert.addAction(UIAlertAction(title: "切回本地托管", style: .default) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: "切回本机 Python 网关", style: .default) { [weak self] _ in
+            self?.switchToLocal(kind: GatewayProfile.python)
+        })
+        alert.addAction(UIAlertAction(title: "切回本机 Go 网关", style: .default) { [weak self] _ in
+            self?.switchToLocal(kind: GatewayProfile.go)
+        })
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel, handler: nil))
+        present(alert, animated: true)
+    }
+
+    /// 切换本机形态：先把两边可能残留的监听都停掉，再按新形态启动。
+    /// 不这么做的话，Python 的 8788 还占着端口，Go 起来后探活会连到旧网关。
+    private func switchToLocal(kind: String) {
+        stopLocalGo()
+        Settings.remoteEnabled = false
+        Settings.localKind = kind
+        bootstrapped = false
+        loadedURL = nil
+        healthFailures = 0
+        spinner.startAnimating()
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
-            Settings.remoteEnabled = false
-            self.bootstrapped = false
-            self.loadedURL = nil
-            self.healthFailures = 0
-            self.startGateway()
-            self.toastLater("已切回本地 Python 网关")
+            _ = PyBridge.shared.call("stop", self.payload())
+            DispatchQueue.main.async { self.startGateway() }
+        }
+        toastLater("已切回本机 \(GatewayProfile.label(kind))")
+    }
+
+    /// 菜单里的形态选择：不用先绕进「远程接入」也能切 Python / Go。
+    private func showLocalKindSettings() {
+        let alert = UIAlertController(
+            title: "本机网关形态",
+            message: "Python 网关由内嵌 CPython 托管；Go 网关由构建期编译进包、随 App 签名的静态库在进程内运行。\n\nGo 网关版本与 App 版本绑定，换版本需要升级 App。",
+            preferredStyle: .actionSheet)
+        alert.addAction(UIAlertAction(title: "Python 网关（本地托管）", style: .default) { [weak self] _ in
+            self?.switchToLocal(kind: GatewayProfile.python)
+        })
+        alert.addAction(UIAlertAction(title: "Go 网关（随包内置）", style: .default) { [weak self] _ in
+            self?.switchToLocal(kind: GatewayProfile.go)
         })
         alert.addAction(UIAlertAction(title: "取消", style: .cancel, handler: nil))
         present(alert, animated: true)
@@ -597,11 +677,12 @@ final class RootViewController: UIViewController {
 
     private func showLog() {
         // 远程接入时网关进程不在本机，日志要看运行网关那一侧。
-        if GatewayProfile.remote {
-            let alert = UIAlertController(
-                title: "启动日志",
-                message: "远程接入模式下没有本地启动日志，请看运行网关那一侧的控制台。",
-                preferredStyle: .alert)
+        if GatewayProfile.remote || GatewayProfile.isLocalGo {
+            let message = GatewayProfile.remote
+                ? "远程接入模式下没有本地启动日志，请看运行网关那一侧的控制台。"
+                : GoBridge.shared.logHint
+            let alert = UIAlertController(title: "启动日志", message: message,
+                                          preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "好", style: .default, handler: nil))
             present(alert, animated: true)
             return
@@ -635,14 +716,17 @@ final class RootViewController: UIViewController {
 
     private func showAbout() {
         let version = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "?"
-        let mode = GatewayProfile.remote ? "远程接入" : "本地托管"
+        let mode = GatewayProfile.remote ? "远程接入"
+            : (GatewayProfile.isLocalGo ? "本机运行（随包内置）" : "本地托管")
         let message = """
         版本 \(version)
 
-        OneGateway 是网关宿主容器：App 只提供 CPython 环境、常驻托管与面板外壳，
-        自身不含网关实现。当前为 \(GatewayProfile.label(GatewayProfile.kind)) · \(mode)；
-        Go 单二进制不能在 iOS App 内执行，只能远程接入已运行的实例。账号、配额与
-        用量统计都在网关那一侧处理，不经过第三方服务器。
+        OneGateway 是网关宿主容器：仓库本身不含网关源码，App 提供内嵌 CPython、
+        构建期编译并随包签名的 Go 静态库、常驻托管与面板外壳。当前为
+        \(GatewayProfile.label(GatewayProfile.kind)) · \(mode)。Python 网关由 CPython
+        托管、可随包更新；Go 网关在 App 进程内运行，版本与 App 绑定，换版本要升级
+        App。也可以连到电脑 / 服务器上已运行的实例。账号、配额与用量统计都在
+        网关那一侧处理，不经过第三方服务器。
 
         面板：\(baseURL)
         API：\(apiBase)

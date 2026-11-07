@@ -11,3 +11,8 @@
 
 #import <Foundation/Foundation.h>
 #include <Python/Python.h>
+
+// Go 网关的 c-archive 头文件由 scripts/build-go-gateway.sh 在构建期生成，
+// 与 libgateway.a 一起放在 OneGateway/GoGateway/（HEADER_SEARCH_PATHS 已包含）。
+// 它只导出 StartGateway / StopGateway 两个 C 入口，供 GoBridge.swift 调用。
+#include "libgateway.h"

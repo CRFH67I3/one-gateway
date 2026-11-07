@@ -5,6 +5,50 @@
 
 ## 未发布 / Unreleased
 
+### 两端都本机运行 Go 网关（构建期编译 + 随包签名）
+
+把 Go 型网关从「只能远程接入」升级为「Android / iOS 都在手机里本机运行」。
+两个导入入口与交互保持不变，远程接入降级为可选连接方式。
+
+- **平台边界重新界定**：之前说的「不能」只限于「从可写的应用私有目录 exec
+  下载来的 ELF」。Android 10+ 的 W^X 允许执行 APK 内 `/data/app/.../lib/<abi>/`
+  （`apk_data_file`）里随包签名的二进制；iOS 允许运行静态链接进主二进制、
+  随 App 签名的代码。两端因此都能在构建期把外部 Go 源码编译进安装包。
+- **Android**：新增 `scripts/build-go-gateway.sh`，用
+  `CGO_ENABLED=0 GOOS=android` 交叉编译 arm64 / x86_64 两份 PIE ELF 为
+  `jniLibs/<abi>/libgateway.so`；`build.gradle.kts` 开
+  `useLegacyPackaging = true` 让安装器解压出可 exec 的路径。新增 `GoGateway.kt`
+  从只读 `nativeLibraryDir` 用 `ProcessBuilder` 启停进程、合并日志、探活
+  `/healthz`（503 也算存活），写入沙盒绝对路径配置、持久化随机 API Key，
+  并关掉自更新器与后台外连任务。`GatewayBridge` 按形态分流 start/stop/status/logTail。
+- **iOS**：新增 `scripts/prepare-go-bridge.py`，对上游 `cmd/server/main.go` 做五处
+  机械替换（`main()` → `runGateway()`、`log.Fatalf` → `fatalf`、
+  `os.Exit(1)` → `panic`、`signal.NotifyContext` → `gatewayContext()`、删
+  `os/signal`），生成 `//export StartGateway` / `StopGateway`；替换次数全部断言。
+  `scripts/build-go-gateway.sh` 用 `-buildmode=c-archive` 产出
+  `GoGateway/libgateway.a` + `.h`，`project.yml` 加入头文件/库搜索路径与
+  `-lgateway`，桥接头 `#include "libgateway.h"`。新增 `GoBridge.swift` 在 App
+  进程内起 goroutine 跑 `http.Server`，`StopGateway()` 通过 context 取消走优雅
+  停机；启动串行等待上一轮退出，避免 stop→start 抢端口导致静默停服。
+- **外壳**：`GatewayProfile` 双端新增 `isLocalGo`；Android 导入 Go ZIP 不再切远程
+  而是回本机运行，关于页与文案改为「本机运行（随包内置）」；iOS 新增
+  「本机网关形态…」菜单与 `Settings.localKind`，生命周期（启动 / 暂停 / 恢复 /
+  重启 / 日志）全部按形态分流，关于页同步改写。两端现在都能**不导入 ZIP** 直接
+  选本机形态（Android 设置页新增「本机形态」开关、`Prefs.localKind` 与
+  `projectKind` 分离且默认回落），前台服务在 Go 本机模式下不再要求先有导入项目。
+- **CI**：两条移动端流水线新增 `actions/setup-go@v5`（1.26.10）与构建期编译步骤；
+  Android 逐包校验 `libgateway.so` 存在且单 ABI，iOS 校验静态库里的
+  `StartGateway` / `StopGateway` 符号、主二进制链接结果与「静态库没被当资源入包」；
+  两条 timeout 放宽到 90 分钟。`.gitignore` 排除 `jniLibs/` 与 `GoGateway/*.a|*.h`。
+- **边界更新**：仓库仍**零网关源码**；产物里现在含有构建期从外部源码编译、随包
+  签名的 Go 二进制。Go 版本与 App 版本绑定，ZIP 只用于确认形态与版本，换 Go
+  版本要升级 App；Python 型仍可导入 ZIP 热更新。`wb_hub_env` 明确拒绝让 CPython
+  托管 Go 型项目。`sync-core.sh` 遇到 Go ZIP 改为提示构建脚本与形态菜单。
+- **测试**：`tests/_test_dual_gateway_compat.py` 从 21 例扩到 37 例，新增
+  `LocalGoRuntimeTests`（Android 构建 / 打包 / 配置 / 生命周期）与
+  `IosLocalGoRuntimeTests`（c-archive 接线、桥接模板、真跑一遍
+  `prepare-go-bridge.py` 的源码变换、Swift 生命周期与 CI 顺序）。
+
 ### 双形态兼容：同一容器同时接 Python 型与 Go 型网关
 
 把容器的接入契约从单一 Python 型扩到两种形态，**两个导入入口与交互保持不变**。
@@ -19,19 +63,19 @@
   （`accounts`/`accounts_ready` vs `total`/`healthy`）、默认端口、远程地址规范化与
   主题脚本。Go 的 `/healthz` 回 503 时仍读响应体，算「可达但没号」。
 - **远程接入**：两端新增开关（**默认关**）。打开后不启动本地进程 / 前台服务 /
-  CPython，面板、探活、复制 API 地址、通知、关于页全部指向所填 origin；地址支持
-  回环、局域网 IP 与 https。Go 型 ZIP 导入成功会自动切到该模式并填好
-  `127.0.0.1:7863`（本机 Termux 常见形态）。
+  CPython / GoBridge，面板、探活、复制 API 地址、通知、关于页全部指向所填 origin；
+  地址支持回环、局域网 IP 与 https。它最初是 Go 型的唯一路径，上一节改为本机
+  运行后降级为「连电脑 / 服务器上已运行实例」的可选方式。
 - **双源自动更新**：Android 设置里可切到 Go 仓库的 `main` 快照，下载仍走
   「镜像优先、直连兜底」，之后复用同一个 `installProject()`；默认仍是 Python 源。
 - **深浅色**：Python 面板保留 `?sysdark=` + `wb:system-theme`；Go 面板在页面就绪与
   系统切深浅时注入 `wb2api.theme` + `applyTheme()`，两端都不重载页面、不掉登录。
-- **平台限制**：Go 单二进制无法在 App 内执行（Android 10+ 禁止从私有目录 exec
-  未签名 ELF、iOS 只允许签名代码），因此只做「识别 + 远程接入」；容器仍不含任何
-  网关源码或二进制。`sync-core.sh` 遇到 Go ZIP 给出可操作的诊断而非空泛报错。
-- **测试**：新增 `tests/_test_dual_gateway_compat.py`（21 例：两种 ZIP 真调
-  `install()`、三端契约静态比对、iOS 抽取脚本执行、可选真实仓库联网验证），
-  套件数 6 → 7；两条移动端流水线在编译前也跑它。
+- **容器仍不含网关源码**：`sync-core.sh` 遇到 Go ZIP 给出可操作的诊断而非空泛
+  报错；Go 二进制只在构建期从外部源码生成、随包签名（见上一节）。
+- **测试**：新增 `tests/_test_dual_gateway_compat.py`（初版 21 例，现 37 例：
+  两种 ZIP 真调 `install()`、三端契约静态比对、iOS 抽取脚本执行、Go 桥接源码
+  变换行为测试、可选真实仓库联网验证），套件数 6 → 7；两条移动端流水线在编译前
+  也跑它。
 
 ### 更名：Proxy Gateway Runtime → OneGateway
 

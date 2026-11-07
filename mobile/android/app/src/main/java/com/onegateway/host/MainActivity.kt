@@ -537,8 +537,8 @@ class MainActivity : Activity() {
             ).show()
             finishAutoImport(null)
             if (result.optString("kind") == GatewayProfile.GO) {
-                // 安装本身是成功的，只是这份代码不能在手机里本地跑：把下一步
-                // 说清楚，别让用户对着「已安装」却看不到面板发懵。
+                // 安装本身是成功的，但这里跑的不是 ZIP 里的源码：说清楚二进制
+                // 随包签名、版本与 App 绑定，别让用户以为导入 ZIP 就能升级 Go 网关。
                 Toast.makeText(this, R.string.project_go_remote_hint, Toast.LENGTH_LONG).show()
             }
             // 置空 loadedUrl：面板要按新版本重新载一次，否则 WebView 里还是
@@ -690,6 +690,10 @@ class MainActivity : Activity() {
             text = getString(R.string.settings_remote_kind)
             isChecked = Prefs.remoteKind(this@MainActivity) == GatewayProfile.GO
         }
+        val localKindSwitch = Switch(this).apply {
+            text = getString(R.string.settings_local_kind)
+            isChecked = Prefs.localKind(this@MainActivity) == GatewayProfile.GO
+        }
         val sourceSwitch = Switch(this).apply {
             text = getString(R.string.settings_source_go)
             isChecked = Prefs.source(this@MainActivity) == GatewayProfile.GO
@@ -711,6 +715,7 @@ class MainActivity : Activity() {
         container.addView(remoteSwitch)
         container.addView(remoteInput)
         container.addView(goSwitch)
+        container.addView(localKindSwitch)
         container.addView(sourceSwitch)
         container.addView(remoteHint)
         container.addView(hint)
@@ -732,12 +737,15 @@ class MainActivity : Activity() {
                 }
                 val newKind = if (goSwitch.isChecked) GatewayProfile.GO else GatewayProfile.PYTHON
                 val normalised = GatewayProfile.normaliseBase(rawBase, newKind)
+                val sourceChanged = sourceSwitch.isChecked != (Prefs.source(this) == GatewayProfile.GO)
+                val localKindChanged = localKindSwitch.isChecked !=
+                    (Prefs.localKind(this) == GatewayProfile.GO)
                 val remoteChanged =
                     remoteSwitch.isChecked != Prefs.remote(this) ||
                         normalised != GatewayProfile.normaliseBase(
                             Prefs.remoteBase(this), Prefs.remoteKind(this)) ||
                         newKind != Prefs.remoteKind(this) ||
-                        sourceSwitch.isChecked != (Prefs.source(this) == GatewayProfile.GO)
+                        sourceChanged || localKindChanged
                 val changed = port != Prefs.port(this) || lanSwitch.isChecked != Prefs.lan(this)
                 Prefs.setPort(this, port)
                 Prefs.setLan(this, lanSwitch.isChecked)
@@ -746,6 +754,7 @@ class MainActivity : Activity() {
                 Prefs.setRemoteBase(this, normalised)
                 Prefs.setRemoteKind(this, newKind)
                 Prefs.setSource(this, if (sourceSwitch.isChecked) GatewayProfile.GO else GatewayProfile.PYTHON)
+                Prefs.setLocalKind(this, if (localKindSwitch.isChecked) GatewayProfile.GO else GatewayProfile.PYTHON)
                 if (changed || remoteChanged) {
                     // 面板地址变了就要重新载一次；远程模式没有本地进程可重启，
                     // 只要让轮询立刻按新地址探一次即可。
@@ -793,15 +802,21 @@ class MainActivity : Activity() {
         val body = buildString {
             append(getString(R.string.about_app_version, BuildConfig.VERSION_NAME))
             append("\n\n")
+            val mode = when {
+                GatewayProfile.isRemote(this@MainActivity) -> "远程接入"
+                GatewayProfile.isLocalGo(this@MainActivity) -> "本机运行（随包内置）"
+                else -> "本地托管"
+            }
             append(getString(R.string.about_mode,
-                GatewayProfile.label(GatewayProfile.kind(this@MainActivity)),
-                if (GatewayProfile.isRemote(this@MainActivity)) "远程接入" else "本地托管"))
+                GatewayProfile.label(GatewayProfile.kind(this@MainActivity)), mode))
             append('\n')
             append(getString(R.string.about_endpoint,
                 GatewayProfile.baseUrl(this@MainActivity, Prefs.port(this@MainActivity))))
             append("\n\n")
             if (root == null && GatewayProfile.isRemote(this@MainActivity)) {
                 append(getString(R.string.about_remote_hint))
+            } else if (root == null && GatewayProfile.isLocalGo(this@MainActivity)) {
+                append(getString(R.string.about_local_go_hint))
             } else if (root == null) {
                 append(getString(R.string.project_none_hint))
             } else {

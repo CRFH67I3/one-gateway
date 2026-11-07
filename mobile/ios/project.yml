@@ -110,5 +110,14 @@ targets:
         HEADER_SEARCH_PATHS:
           - $(inherited)
           - $(BUILT_PRODUCTS_DIR)/Python.framework/Headers
+          # Go 的 c-archive 头文件（libgateway.h）由构建脚本生成。
+          - $(SRCROOT)/OneGateway/GoGateway
+        # libgateway.a 是构建期编出来的静态库：Go 网关随 App 签名，进程内运行。
+        LIBRARY_SEARCH_PATHS:
+          - $(inherited)
+          - $(SRCROOT)/OneGateway/GoGateway
+        OTHER_LDFLAGS:
+          - $(inherited)
+          - -lgateway
         # framework 头里用引号 include 同名头文件，iOS SDK 默认对此告警，关掉。
         CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER: "NO"

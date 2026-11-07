@@ -6,17 +6,18 @@ import org.json.JSONObject
 /**
  * 两套外部网关的接入契约，容器里唯一一份「形态 → 地址/字段/脚本」的映射表。
  *
- * 本仓库不携带任何网关实现，但用户能导入两种完全不同的外部项目：
+ * 用户能导入两种完全不同的外部项目，两者都能在手机里本机运行：
  *
  *  * `python`（ardeyouxipianyi/workbuddy2api-hub）：wb_proxy.py + dashboard.html，
- *    纯标准库，能在 App 内由 CPython 直接托管。面板在 `/`，探活 `GET /health`
- *    返回 accounts / accounts_ready，换肤靠 `wb:system-theme` 事件。
+ *    纯标准库，导入 ZIP 后由 App 内 CPython 托管，可热更新。面板在 `/`，探活
+ *    `GET /health` 返回 accounts / accounts_ready，换肤靠 `wb:system-theme` 事件。
  *  * `go`（misakano7545/workbuddy2api-panel）：Go 单二进制，面板在 `/panel/`，
  *    探活 `GET /healthz` 返回 total / healthy，主题存 localStorage
- *    ['wb2api.theme'] 并由 applyTheme() 刷 data-theme。Android 10+ 禁止从应用
- *    私有目录执行未签名 ELF，iOS 只允许运行签名进包的代码，所以这类网关**不能**
- *    在 App 内本地托管；它由「远程接入」连到已运行的实例（电脑、服务器或本机
- *    Termux），容器只负责显示面板与探活。
+ *    ['wb2api.theme'] 并由 applyTheme() 刷 data-theme。Android 10+ 禁止从可写的
+ *    应用私有目录执行未签名 ELF、iOS 只允许运行签名进包的代码，所以它在**构建期**
+ *    被交叉编译成随 APK/IPA 签名的二进制，由 [GoGateway] / GoBridge 在进程内或
+ *    子进程里启动；导入的 ZIP 只用于确认形态与版本，不能替换二进制。需要连到别处
+ *    已运行的实例时，仍可在设置里打开「远程接入」。
  *
  * 两个导入入口与交互保持不变：识别形态由 Python 薄运行时完成，外壳在这里只读
  * 结果。远程模式时必须先有这里的 kind 才能拼出正确地址——所以 kind 的优先级是
@@ -43,8 +44,17 @@ object GatewayProfile {
 
     fun isRemote(context: Context): Boolean = Prefs.remote(context)
 
+    /**
+     * Go 型且没有开远程接入 = 本机运行随包内置的 Go 网关。
+     * 面板/探活路径与远程 Go 完全一致，差别只在谁托管进程。
+     * 用 localKind 而不是 projectKind：Go 二进制随包签名，直接切换即可，
+     * 不必先导入一份 Go 源码 ZIP。
+     */
+    fun isLocalGo(context: Context): Boolean =
+        !isRemote(context) && Prefs.localKind(context) == GO
+
     fun kind(context: Context): String =
-        if (isRemote(context)) Prefs.remoteKind(context) else Prefs.projectKind(context)
+        if (isRemote(context)) Prefs.remoteKind(context) else Prefs.localKind(context)
 
     /**
      * 远程地址规范化：接受 `127.0.0.1:7863`、`192.168.1.5`、完整 URL，

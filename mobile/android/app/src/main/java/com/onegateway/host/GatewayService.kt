@@ -93,7 +93,9 @@ class GatewayService : Service() {
             return
         }
         // 空壳状态下没什么可启动的：不弹「启动失败」，直接告诉用户下一步该做什么。
-        if (GatewayBridge.projectRoot(context) == null) {
+        // Go 本机模式是例外——二进制随包签名在 jniLibs 里，不需要任何导入的
+        // 项目 ZIP 就能跑，不该被「还没有导入网关项目」挡住。
+        if (!GatewayProfile.isLocalGo(context) && GatewayBridge.projectRoot(context) == null) {
             active = false
             postNotification(
                 getString(R.string.notif_no_project_title),

@@ -1,23 +1,27 @@
-"""容器同时兼容两种外部网关：导入识别 + 三端接入契约。
+"""容器同时兼容两种外部网关：导入识别 + 三端接入契约 + 本机运行边界。
 
 这个仓库不含网关实现，但用户能导入两种完全不同的外部项目：
 
   * Python 型（ardeyouxipianyi/workbuddy2api-hub）：wb_proxy.py + dashboard.html，
-    能在 App 内由 CPython 本地托管；
+    由 App 内嵌 CPython 本地托管，ZIP 可以热更新；
   * Go 型（misakano7545/workbuddy2api-panel）：go.mod + cmd/server，单二进制。
-    Android 10+ 禁止从应用私有目录执行未签名 ELF，iOS 只允许运行签名进包的
-    代码，所以它**只能远程接入**——网关跑在电脑 / 服务器 / 本机 Termux，容器
-    只负责显示 `/panel/` 面板与探活 `/healthz`。
+    Android 10+ 禁止从可写的应用私有目录 exec 未签名 ELF，iOS 只允许运行
+    签名进包的代码，所以它**在构建期**从外部源码编译、随安装包签名：
+    Android 是 jniLibs/<abi>/libgateway.so（GoGateway 从 nativeLibraryDir 起进程），
+    iOS 是 -buildmode=c-archive 的 libgateway.a（GoBridge 在进程内起 goroutine）。
+    ZIP 只用来确认形态与版本，不能替换二进制；Go 版本与 App 版本绑定。
 
 「尽最大可能兼容」的落点是：两种 ZIP 都能被同一个 install() 认出来、两个导入
 入口与交互不变、三端（Python 薄运行时 / Android Kotlin / iOS Swift）共用同一套
-地址与字段契约、深浅色两套主题脚本互不干扰、健康字段归一化。
+地址与字段契约、深浅色两套主题脚本互不干扰、健康字段归一化。远程接入仍保留，
+但从「Go 的唯一路径」降级为可选连接方式。
 
 分三层钉住：
   1. 行为：真的造两份同构 ZIP 喂给 wb_hub_env.install()，看形态/版本/端口；
   2. 契约：三端源码里的路径、字段、主题键、状态码逐项对齐，不许哪一端偷偷
      退回「127.0.0.1/health」的硬编码；
-  3. 边界：Go 型只被识别、绝不被本地执行；容器仍然保持「零网关源码」。
+  3. 边界：下载的可执行代码绝不进运行时；跑的是随包签名的那一份。源码 ZIP
+     只能被 CPython 薄运行时识别，绝不交给它执行。
 
 联网用例默认关闭：WB_LIVE_DUAL_COMPAT=1 时会下载两个真实仓库的 ZIP 再跑一遍。
 
@@ -60,7 +64,8 @@ CONTRACT = {
     "go": {
         "marker": "go.mod", "panel": "/panel/", "health": "/healthz",
         "accounts": "total", "usable": "healthy", "port": 7863,
-        "repo": GO_REPO, "local": False,
+        # 现在两端都在本机运行：构建期编译成随包签名的二进制，ZIP 只用于识别形态。
+        "repo": GO_REPO, "local": True,
     },
 }
 
@@ -148,13 +153,15 @@ class InstallDetectionTests(unittest.TestCase):
         self.assertIn("wb_proxy.py", result["error"])
         self.assertIn("go.mod", result["error"])
 
-    def test_go_project_is_never_imported_locally(self):
+    def test_go_project_is_never_run_by_cpython(self):
+        # Go 型现在也在手机里跑，但跑的是随包签名的二进制，不是 CPython。
+        # 薄运行时依旧必须拒绝它，否则 import wb_proxy 会抛看不懂的错误。
         result = self.install("workbuddy2api-panel-main", GO_ENTRIES)
         state = json.loads(self.shim.start(
             result["root"], os.path.join(self.tmp.name, "data"), 8788, False))
         self.assertFalse(state.get("ok"))
         self.assertFalse(state.get("running"))
-        self.assertIn("远程接入", state.get("error", ""))
+        self.assertIn("GoGateway", state.get("error", ""))
         self.assertNotIn("wb_proxy", sys.modules,
                          "start() 不该为 Go 型项目去 import Python 网关")
 
@@ -248,22 +255,57 @@ class ContractParityTests(unittest.TestCase):
         self.assertIn("fun sourceZipUrls(kind: String)", self.bridge)
         self.assertIn("GatewayBridge.sourceZipUrls(Prefs.source(this))", self.main)
 
-    def test_go_zip_switches_the_shell_to_remote_access(self):
+    def test_go_zip_keeps_the_shell_in_local_mode(self):
+        # 导入 Go ZIP 不再把用户踢到远程接入：本机运行随包内置的二进制。
         self.assertIn('result.optString("kind").ifBlank', self.bridge)
-        self.assertIn("Prefs.setRemote(context, true)", self.bridge)
+        self.assertIn("Prefs.setRemote(context, false)", self.bridge)
         self.assertIn("Prefs.setRemoteKind(context, GatewayProfile.GO)", self.bridge)
+        self.assertIn("GatewayProfile.isLocalGo(context)", self.bridge)
+        self.assertIn("GoGateway.start(context, port, lan)", self.bridge)
         self.assertIn('name="project_go_remote_hint"', self.strings)
+        self.assertIn("随安装包签名的内置 Go 网关", self.strings)
+
+    def test_local_kind_can_be_switched_without_importing_a_zip(self):
+        # 两端都要能直接选「本机跑 Python 还是 Go」：Go 是随包签名的二进制，
+        # 不该为了切形态先下载一份 2MB 源码 ZIP。
+        self.assertIn("fun localKind(context: Context)", self.prefs)
+        self.assertIn("Prefs.setLocalKind(context, kind)", self.bridge)
+        self.assertIn("Prefs.localKind(context) == GO", self.profile_kt)
+        self.assertIn('name="settings_local_kind"', self.strings)
+        self.assertIn("localKindSwitch", self.main)
+        self.assertIn("var localKind: String", self.paths_swift)
+        self.assertIn("Settings.localKind == go", self.profile_swift)
+        self.assertIn("本机网关形态", self.root_vc)
+        # 没有导入任何 ZIP 时，前台服务也要允许起内置 Go 网关。
+        self.assertIn("!GatewayProfile.isLocalGo(context) && GatewayBridge.projectRoot(context) == null",
+                      self.service)
+
+    def test_import_still_switches_the_local_kind(self):
+        # 兼容旧行为：导入一份形态明确的 ZIP 仍然等价于切换本机形态。
+        self.assertIn("Prefs.setProjectKind(context, kind)", self.bridge)
+        self.assertIn("Prefs.setLocalKind(context, kind)", self.bridge)
 
     def test_ios_build_diagnoses_a_go_core_zip(self):
+        # Go 源码包不是 Python 核心；诊断要指向构建期的 c-archive，而不是「远程接入」。
         self.assertIn('os.path.basename(n) == "go.mod"', self.sync_core)
-        self.assertIn("远程网关接入", self.sync_core)
+        self.assertIn("build-go-gateway.sh", self.sync_core)
+        self.assertIn("本机网关形态", self.sync_core)
+        self.assertNotIn("连到已运行的 Go 实例", self.sync_core)
 
-    def test_container_never_executes_an_external_binary(self):
-        # 「兼容」不等于「把 Go 二进制塞进 App 里跑」：容器仍然只装载 Python 型。
-        for source in (self.shim, self.main, self.service, self.root_vc):
+    def test_container_never_executes_a_downloaded_binary(self):
+        # 平台硬限制：下载/解压到可写目录的 ELF 永远不能被 exec。
+        # 薄运行时、界面、前台服务都不碰进程；只有 GoGateway 能从只读的
+        # nativeLibraryDir 启动随包签名的那一份。
+        for source in (self.shim, self.main, self.service, self.root_vc,
+                       read(os.path.join(SWIFT, "GoBridge.swift"))):
             for forbidden in ("subprocess", "os.execv", "posix_spawn",
                               "Runtime.getRuntime().exec", "dlopen("):
                 self.assertNotIn(forbidden, source)
+        go = read(os.path.join(JAVA, "GoGateway.kt"))
+        self.assertIn("nativeLibraryDir", go)
+        self.assertIn('ProcessBuilder(bin.absolutePath, "-config"', go)
+        self.assertNotIn("projectsDir", go)
+        self.assertNotIn("cacheDir", go)
 
     def test_default_ports_are_the_ones_the_upstream_projects_use(self):
         # Python 端口由 Prefs.DEFAULT_PORT 单一来源提供，Go 端口三端各留一份常量
@@ -281,6 +323,65 @@ class ContractParityTests(unittest.TestCase):
             self.assertIn("https://", source)
         self.assertIn('name="settings_remote"', self.strings)
         self.assertIn("远程网关接入…", self.root_vc)
+
+
+class LocalGoRuntimeTests(unittest.TestCase):
+    """Android：Go 网关随包签名，构建期编译、运行时只从只读目录启动。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.script = read(os.path.join(ROOT, "mobile", "android", "scripts",
+                                       "build-go-gateway.sh"))
+        cls.gradle = read(os.path.join(ROOT, "mobile", "android", "app",
+                                       "build.gradle.kts"))
+        cls.workflow = read(os.path.join(ROOT, ".github", "workflows",
+                                         "mobile-android.yml"))
+        cls.go = read(os.path.join(JAVA, "GoGateway.kt"))
+        cls.bridge = read(os.path.join(JAVA, "GatewayBridge.kt"))
+        cls.gitignore = read(os.path.join(ROOT, ".gitignore"))
+
+    def test_build_script_cross_compiles_both_abis(self):
+        for token in ("CGO_ENABLED=0", "GOOS=android", "GOARCH=\"$arch\"",
+                      "./cmd/server", "libgateway.so", "arm64-v8a", "x86_64"):
+            self.assertIn(token, self.script)
+        self.assertIn("build_abi arm64-v8a arm64 b7", self.script)
+        self.assertIn("build_abi x86_64 amd64 3e", self.script)
+
+    def test_build_script_verifies_pie_elf(self):
+        # Android 只接受 PIE；e_type=2 (ET_EXEC) 会在运行时被内核拒绝。
+        self.assertIn("e_type", self.script)
+        self.assertIn("PIE", self.script)
+
+    def test_gradle_extracts_native_libs(self):
+        # 不解压就没有可 exec 的文件路径，nativeLibraryDir 会是空的。
+        self.assertIn("useLegacyPackaging = true", self.gradle)
+        self.assertIn("jniLibs", self.gradle)
+
+    def test_ci_builds_the_binary_before_assembling(self):
+        self.assertIn("setup-go@v5", self.workflow)
+        self.assertIn("build-go-gateway.sh", self.workflow)
+        self.assertLess(
+            self.workflow.index("Build embedded Go gateway binaries"),
+            self.workflow.index("- name: Build APK"))
+        self.assertIn("libgateway.so", self.workflow)
+
+    def test_binary_is_never_checked_in(self):
+        for path in ("mobile/android/app/src/main/jniLibs/",
+                     "mobile/ios/OneGateway/GoGateway/*.a",
+                     "mobile/ios/OneGateway/GoGateway/*.h"):
+            self.assertIn(path, self.gitignore)
+
+    def test_runtime_config_uses_sandbox_paths_and_no_self_update(self):
+        for token in ("nativeLibraryDir", "auth_dir", "state_file", "api_key",
+                      "listen", "auto_enabled", "balance_refresh_enabled"):
+            self.assertIn(token, self.go)
+        self.assertIn('File(dir, "data").mkdirs()', self.go)
+        self.assertIn("File(dir, \"auths\").mkdirs()", self.go)
+
+    def test_service_lifecycle_is_routed_to_the_go_process(self):
+        for action in ("GoGateway.start", "GoGateway.stop", "GoGateway.status",
+                       "GoGateway.logTail"):
+            self.assertIn(action, self.bridge)
 
 
 class IosSyncCoreTests(unittest.TestCase):
@@ -319,7 +420,146 @@ class IosSyncCoreTests(unittest.TestCase):
         self.assertNotEqual(0, proc.returncode)
         self.assertEqual([], files, "Go 源码不该被当核心抽进 iOS 包")
         self.assertIn("Go 网关源码包", proc.stderr)
-        self.assertIn("远程网关接入", proc.stderr)
+        self.assertIn("build-go-gateway.sh", proc.stderr)
+        self.assertIn("本机网关形态", proc.stderr)
+        self.assertNotIn("远程网关接入", proc.stderr)
+
+
+#: 与上游 cmd/server/main.go 同构的最小样本，覆盖脚本的全部五处替换目标。
+#: 上游一改结构，下面这个用例会先于 macOS CI 报出来。
+SYNTHETIC_GO_MAIN = '''package main
+
+import (
+\t"context"
+\t"log"
+\t"os"
+\t"os/signal"
+\t"syscall"
+)
+
+func main() {
+\tif err := load(); err != nil {
+\t\tlog.Fatalf("boom: %v", err)
+\t\tos.Exit(1)
+\t}
+\tctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+\tdefer stop()
+\t_ = ctx
+\t_ = syscall.EBUSY
+}
+'''
+
+
+class IosLocalGoRuntimeTests(unittest.TestCase):
+    """iOS：Go 网关在构建期编成 c-archive 静态库，随包签名、进程内运行。
+
+    本机是 Windows，编不了 c-archive，所以这里两头一起钉：
+      * 构建脚本与 Xcode 接线（静态断言，CI 会真的跑一遍）；
+      * prepare-go-bridge.py 的源码变换（真跑一遍，替身 main.go 全量断言）。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.build_script = read(os.path.join(ROOT, "mobile", "ios", "scripts",
+                                             "build-go-gateway.sh"))
+        cls.prepare_script = read(os.path.join(ROOT, "mobile", "ios", "scripts",
+                                               "prepare-go-bridge.py"))
+        cls.prepare_path = os.path.join(ROOT, "mobile", "ios", "scripts",
+                                        "prepare-go-bridge.py")
+        cls.bridge_swift = read(os.path.join(SWIFT, "GoBridge.swift"))
+        cls.project = read(os.path.join(ROOT, "mobile", "ios", "project.yml"))
+        cls.header = read(os.path.join(SWIFT, "OneGateway-Bridging-Header.h"))
+        cls.root_vc = read(os.path.join(SWIFT, "RootViewController.swift"))
+        cls.workflow = read(os.path.join(ROOT, ".github", "workflows",
+                                         "mobile-ios.yml"))
+
+    def test_build_script_uses_c_archive_for_ios(self):
+        for token in ("CGO_ENABLED=1", "GOOS=ios", "GOARCH=arm64",
+                      "-buildmode=c-archive", "xcrun --sdk iphoneos",
+                      "libgateway.a", "libgateway.h", "prepare-go-bridge.py",
+                      "./cmd/server", "StartGateway", "StopGateway"):
+            self.assertIn(token, self.build_script)
+        # 三个下载地址与 Android 一致，镜像优先、直连兜底。
+        self.assertIn("v4.gh-proxy.org", self.build_script)
+        self.assertIn(GO_REPO, self.build_script)
+
+    def test_prepare_bridge_rewrites_the_cli_entry_point(self):
+        with tempfile.TemporaryDirectory(prefix="dual-go-bridge-") as tmp:
+            server = os.path.join(tmp, "cmd", "server")
+            os.makedirs(server)
+            entry = os.path.join(server, "main.go")
+            with open(entry, "w", encoding="utf-8") as fh:
+                fh.write(SYNTHETIC_GO_MAIN)
+
+            proc = subprocess.run([sys.executable, self.prepare_path, tmp],
+                                  capture_output=True, text=True, timeout=30)
+            self.assertEqual(0, proc.returncode, proc.stderr)
+            changed = read(entry)
+            for token in ("func runGateway() {", "fatalf(",
+                          'panic("self-update is disabled inside the app")',
+                          "ctx, stop := gatewayContext()"):
+                self.assertIn(token, changed)
+            for token in ("log.Fatalf(", "os.Exit(1)", '"os/signal"',
+                          "signal.NotifyContext"):
+                self.assertNotIn(token, changed)
+
+            generated = read(os.path.join(server, "mobile_bridge.go"))
+            for token in ("//export StartGateway", "//export StopGateway",
+                          'import "C"', "gwDone", "recover()",
+                          "flag.CommandLine", "runGateway()"):
+                self.assertIn(token, generated)
+
+            # 上游结构变了就必须失败，不能悄悄产出一个跑不起来的库。
+            again = subprocess.run([sys.executable, self.prepare_path, tmp],
+                                   capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(0, again.returncode)
+            self.assertIn("期望恰好 1 处", again.stderr)
+
+    def test_bridge_template_serializes_restarts_and_recovers(self):
+        # stop→start 时旧的 ListenAndServe 还没释放端口：必须等上一轮 done，
+        # 否则新监听 bind 失败 -> fatalf -> panic，表现成「重启后面板一直转圈」。
+        for token in ("gwDone", "<-prev", "gwStopPending", "recover()",
+                      "gatewayContext()", "flag.NewFlagSet"):
+            self.assertIn(token, self.prepare_script)
+        self.assertIn("//export StopGateway", self.prepare_script)
+
+    def test_swift_bridge_calls_the_c_entry_points(self):
+        self.assertIn("StartGateway(cPath)", self.bridge_swift)
+        self.assertIn("StopGateway()", self.bridge_swift)
+        self.assertIn("CorePaths.resolve().data", self.bridge_swift)
+        for token in ("listen", "api_key", "auth_dir", "state_file",
+                      "auto_enabled", "balance_refresh_enabled", "logHint"):
+            self.assertIn(token, self.bridge_swift)
+        # iOS 不能起子进程：桥接层只调 C 函数。
+        for forbidden in ("Process(", "posix_spawn", "dlopen(", "fork("):
+            self.assertNotIn(forbidden, self.bridge_swift)
+
+    def test_xcode_links_the_static_library(self):
+        for token in ("HEADER_SEARCH_PATHS", "LIBRARY_SEARCH_PATHS",
+                      "-lgateway", "$(SRCROOT)/OneGateway/GoGateway"):
+            self.assertIn(token, self.project)
+        self.assertIn('#include <Python/Python.h>', self.header)
+        self.assertIn('#include "libgateway.h"', self.header)
+
+    def test_local_go_lifecycle_is_wired_in_the_view_controller(self):
+        for token in ("GatewayProfile.isLocalGo", "startLocalGo(", "stopLocalGo()",
+                      "switchToLocal(kind:", "showLocalKindSettings()",
+                      "GoBridge.shared.logHint", "本机运行（随包内置）",
+                      "healthFailures = 0"):
+            self.assertIn(token, self.root_vc)
+        self.assertNotIn("Go 单二进制不能在 iOS App 内执行", self.root_vc)
+
+    def test_ios_ci_builds_the_archive_before_xcode(self):
+        self.assertIn("setup-go@v5", self.workflow)
+        self.assertIn("1.26.10", self.workflow)
+        self.assertIn("build-go-gateway.sh", self.workflow)
+        self.assertIn("nm -g", self.workflow)
+        self.assertLess(
+            self.workflow.index("Build embedded Go gateway library"),
+            self.workflow.index("- name: Generate Xcode project"))
+        self.assertLess(
+            self.workflow.index("- name: Generate Xcode project"),
+            self.workflow.index("- name: Build (unsigned)"))
 
 
 class LiveArchiveTests(unittest.TestCase):

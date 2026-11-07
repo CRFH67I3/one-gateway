@@ -14,10 +14,14 @@ bootstrap、serve_forever）仍与导入项目的 `wb_proxy.main()` 逐步对齐
 
 * Python 型（wb_proxy.py + dashboard.html）：能在 App 内本地托管，走原来的
   import/start 流程，一步没改；
-* Go 型（go.mod + cmd/server，如 workbuddy2api-panel）：只识别、只登记，不在
-  App 里执行。Android 10+ 不允许从应用私有目录 exec 未签名的 ELF，iOS 更彻底
-  ——只允许运行签名进包的代码。这类网关由外壳的「远程接入」连到已经跑着的
-  实例（电脑 / 服务器 / 本机 Termux），容器只负责显示面板与探活。
+* Go 型（go.mod + cmd/server，如 workbuddy2api-panel）：也只识别、只登记，
+  但**不是**因为手机上跑不了 Go——而是因为 CPython 不该托管它。Go 网关在构建期
+  就从同一份外部源码交叉编译成 `libgateway.so`、随 APK 签名，运行时由 Kotlin 的
+  GoGateway 从只读的 nativeLibraryDir 启动。Android 10+ 禁止的是「从可写的
+  应用私有目录 exec 下载来的 ELF」，随包签名的那一份不在此列。
+* iOS 同理：Go 网关由 build-go-gateway.sh 用 -buildmode=c-archive 编成静态库
+  静态链接进 App，由 GoBridge 在进程内起 goroutine，源码 ZIP 只用于确认形态
+  与版本。两端都不能用 ZIP 热替换二进制，换版本要升级 App；Python 型仍可热更新。
 
 这里的职责到「认出来是哪一种」为止；面板路径、探活字段、主题脚本、地址规范化
 都由外壳的 GatewayProfile 决定，免得一个契约散在 Python/Kotlin/Swift 三处各自漂移。
@@ -498,12 +502,13 @@ def start(project, data, port, lan):
                 _ERROR = info.get("error") or "网关项目不可用"
                 return _dump(_status_locked())
             if info.get("kind") != KIND_PYTHON:
-                # 防呆：Go 型项目只被识别、不被本地执行。外壳导入它时会自动切到
-                # 「远程接入」；万一有人绕过外壳直接调 start()，这里要给出能照做的
-                # 提示，而不是让 import wb_proxy 抛一个看不懂的 ModuleNotFoundError。
-                _ERROR = ("导入的是 Go 网关源码包，App 内无法本地运行"
-                          "（系统不允许执行未签名的可执行文件）。请在设置里打开"
-                          "「远程接入」，填已经跑起来的网关地址")
+                # 防呆：Go 型项目由 APK 内随包签名的二进制（GoGateway）托管，
+                # 不是 CPython 的活。外壳已按形态分流；万一有人绕过外壳直接调
+                # start()，这里给出能照做的提示，而不是抛 ModuleNotFoundError。
+                # 下载来的 Go 源码包只用于识别形态与版本，永远不在这里执行。
+                _ERROR = ("导入的是 Go 网关源码包：CPython 不托管它，实际运行的是"
+                          "安装包内随包签名的 Go 网关（GoGateway）。源码包只用于"
+                          "识别形态与版本，不能替换二进制")
                 return _dump(_status_locked())
             # 项目换了（更新后重新 start）必须重新 configure：否则 sys.path 里
             # 还挂着旧项目目录，import 出来的仍是旧代码；顺带把 _BOOTED 复位，

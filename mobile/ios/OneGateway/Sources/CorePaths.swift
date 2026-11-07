@@ -34,6 +34,7 @@ enum Settings {
     private static let remoteKey = "hub.remote"
     private static let remoteBaseKey = "hub.remoteBase"
     private static let remoteKindKey = "hub.remoteKind"
+    private static let localKindKey = "hub.localKind"
 
     /// 旧版本没写过这个键时用调用方给的默认值，而不是 `Bool()` 的 false。
     private static func storedBool(_ key: String, default fallback: Bool) -> Bool {
@@ -72,9 +73,16 @@ enum Settings {
         set { UserDefaults.standard.set(newValue, forKey: lanKey) }
     }
 
-    // MARK: - 远程接入（Go 网关这类无法在 App 内执行的形态）
+    // MARK: - 形态与远程接入
 
-    /// 打开后不启动本地 CPython 网关，容器只做面板与探活。
+    /// 本机跑哪一套网关：Python 用内嵌 CPython，Go 用随包签名的静态库。
+    /// 默认 Python，保持旧版本升级后的行为不变。
+    static var localKind: String {
+        get { UserDefaults.standard.string(forKey: localKindKey) ?? GatewayProfile.python }
+        set { UserDefaults.standard.set(newValue, forKey: localKindKey) }
+    }
+
+    /// 打开后不启动任何本地网关，容器只做面板与探活。
     static var remoteEnabled: Bool {
         get { UserDefaults.standard.bool(forKey: remoteKey) }
         set { UserDefaults.standard.set(newValue, forKey: remoteKey) }
