@@ -129,6 +129,9 @@ tests/                         # 7 个容器测试套件 + run_all.py
 ## 构建
 
 两端都需要 **Go 1.26.10**（与上游 `go.mod` 一致）；CI 用 `actions/setup-go@v5`。
+Android 的 x86_64 那份还需要 **Android NDK**（Go 的内部链接器不给
+`android/amd64` 产 PIE，必须走 cgo 外部链接；arm64 是纯 Go 静态 PIE）。
+iOS 侧需要 macOS + Xcode 的 clang。
 
 Android（JDK 17 + Android SDK platform 37 / build-tools 36，CI 用 Gradle 9.6）：
 
@@ -156,7 +159,7 @@ python tests/run_all.py              # 跑全部 7 个容器套件
 ```
 
 当前 **7 个套件（7 个 Python + 0 个 JS）**：自动导入契约、构建工具链、容器纯度、
-深浅色换肤、minSdk、UI token、双形态兼容（37 例，含 iOS Go 桥接源码变换的行为测试）。
+深浅色换肤、minSdk、UI token、双形态兼容（38 例，含 iOS Go 桥接源码变换的行为测试）。
 三条 CI 工作流：`tests`（Python 3.9 / 3.12 × Ubuntu / Windows）、`mobile-android`、
 `mobile-ios`；两条移动端流水线也会在编译前跑双形态契约套件，并各自编译 Go 网关。
 加 `WB_LIVE_DUAL_COMPAT=1` 会用两个真实仓库 ZIP 验证识别。

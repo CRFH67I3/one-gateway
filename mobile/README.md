@@ -128,7 +128,7 @@ Go 网关**在构建期**从外部仓库源码编译，两端都本机运行：
 | | Android | iOS |
 |---|---|---|
 | 构建脚本 | `scripts/build-go-gateway.sh` | `scripts/build-go-gateway.sh` + `prepare-go-bridge.py` |
-| 命令 | `CGO_ENABLED=0 GOOS=android go build ./cmd/server` | `CGO_ENABLED=1 GOOS=ios go build -buildmode=c-archive ./cmd/server` |
+| 命令 | `CGO_ENABLED=0 GOOS=android go build ./cmd/server`；**x86_64 例外**：Go 内部链接器不给 `android/amd64` 产 PIE，改用 NDK clang + `CGO_ENABLED=1` 外部链接 | `CGO_ENABLED=1 GOOS=ios go build -buildmode=c-archive ./cmd/server` |
 | 产物 | `jniLibs/{arm64-v8a,x86_64}/libgateway.so`（PIE ELF） | `GoGateway/libgateway.a` + `libgateway.h` |
 | 运行 | `GoGateway.kt` 用 `ProcessBuilder` 从只读 `nativeLibraryDir` 起进程 | `GoBridge.swift` 调 `StartGateway()` 在 App 进程内起 goroutine |
 | 停止 | `destroy()` 进程 | `StopGateway()` 取消 context → `srv.Shutdown()` 优雅停机 |
@@ -137,8 +137,11 @@ Android 必须开 `useLegacyPackaging = true`，否则 `.so` 直接从 APK 映�
 exec 的文件路径。iOS 的 `prepare-go-bridge.py` 对上游 CLI 做五处**机械替换**
 （`main()` → `runGateway()`、`log.Fatalf` → `fatalf`、`os.Exit(1)` → `panic`、
 `signal.NotifyContext` → `gatewayContext()`、删 `os/signal` import），替换次数全部
-断言，上游结构一变就构建失败而不是悄悄产出坏库。`StartGateway` 还会串行等待
-上一轮 `runGateway()` 退出再抢端口，避免 stop→start 时 bind 失败导致静默停服。
+断言，上游结构一变就构建失败而不是悄悄产出坏库。生成的 `mobile_bridge.go` 还留
+一个空的 `main()`：`-buildmode=c-archive` 不调用 main，但 Go 的 runtime 仍引用
+`main.main`，少了会在链接期报 `function main is undeclared in the main package`。
+`StartGateway` 还会串行等待上一轮 `runGateway()` 退出再抢端口，避免 stop→start
+时 bind 失败导致静默停服。
 
 两端写同一份沙盒配置：`listen` 按端口 / 局域网生成、持久化随机 `api_key`、
 `auth_dir` / `state_file` 指绝对路径，并关掉自更新器、定时外连、watchdog、
@@ -161,7 +164,7 @@ exec 的文件路径。iOS 的 `prepare-go-bridge.py` 对上游 CLI 做五处**�
   分开，未设置时回落到后者，保持「导入 Go ZIP 就切到 Go」的老行为）。地址支持
   `127.0.0.1:7863`、局域网 IP 与 `https://host:port`，省略端口按形态补默认值。
 
-`tests/_test_dual_gateway_compat.py`（37 例）用两种同构 ZIP 真调 `install()`，
+`tests/_test_dual_gateway_compat.py`（38 例）用两种同构 ZIP 真调 `install()`，
 静态比对三端的路径、字段、主题键、状态码与「下载的可执行代码绝不进运行时」；
 还会真跑一遍 `prepare-go-bridge.py` 的源码变换，并单独执行 iOS 抽取脚本，
 确保 Go ZIP 得到的是可操作的诊断。

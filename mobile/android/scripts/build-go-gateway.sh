@@ -9,6 +9,11 @@
 #
 # 本脚本只产出二进制，不把网关源码放进仓库：ZIP 下载到临时目录，编完即弃。
 # 产物由 .gitignore 排除，CI 每次构建重新生成，Go 网关版本因此与 App 版本绑定。
+#
+# 两个 ABI 的链接方式不一样：Go 的**内部链接器**不给 android/amd64 产 PIE，
+# 会直接报 "android/amd64 requires external (cgo) linking, but cgo is not
+# enabled"。arm64 维持 CGO_ENABLED=0 的纯 Go 静态 PIE（真机实测可运行），
+# x86_64 则用 Android NDK 的 clang + CGO_ENABLED=1 走外部链接。
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -59,12 +64,54 @@ export CGO_ENABLED=0
 export GOOS=android
 export GOPROXY="${GOPROXY:-https://proxy.golang.org,direct}"
 
+# GitHub 的 ubuntu runner 带了多个 NDK，并设了 ANDROID_NDK_HOME /
+# ANDROID_NDK_LATEST_HOME；本地构建时也可以从 ANDROID_HOME/ndk/* 兜底找。
+# clang 包装脚本已经带好 target 与 sysroot，不需要再拼 CGO_CFLAGS。
+ndk_clang() {
+  local triple="$1" candidate ndk="" host cc
+  for candidate in "${ANDROID_NDK_HOME:-}" "${ANDROID_NDK_ROOT:-}" \
+                   "${ANDROID_NDK:-}" "${ANDROID_NDK_LATEST_HOME:-}"; do
+    if [ -n "$candidate" ] && [ -d "$candidate/toolchains/llvm/prebuilt" ]; then
+      ndk="$candidate"
+      break
+    fi
+  done
+  if [ -z "$ndk" ] && [ -n "${ANDROID_HOME:-}" ]; then
+    for candidate in "$ANDROID_HOME"/ndk/*; do
+      if [ -d "$candidate/toolchains/llvm/prebuilt" ]; then
+        ndk="$candidate"
+        break
+      fi
+    done
+  fi
+  [ -n "$ndk" ] || {
+    echo "error: x86_64 需要 external linking，但找不到 Android NDK（设 ANDROID_NDK_HOME）" >&2
+    return 1
+  }
+  case "$(uname -s)" in
+    Darwin) host="darwin-x86_64" ;;
+    *)      host="linux-x86_64" ;;
+  esac
+  # API 26 与 minSdk 一致；包装脚本名形如 x86_64-linux-android26-clang。
+  cc="$ndk/toolchains/llvm/prebuilt/$host/bin/${triple}-linux-android26-clang"
+  [ -x "$cc" ] || { echo "error: 找不到 NDK clang：$cc" >&2; return 1; }
+  echo "$cc"
+}
+
 build_abi() {
   local abi="$1" arch="$2" machine="$3"
   local dest="$OUT/$abi/libgateway.so"
   echo "编译 $abi（GOARCH=$arch）→ $dest"
-  ( cd "$SRC" && GOARCH="$arch" go build -p 2 -trimpath -ldflags="-s -w" \
-      -o "$dest" ./cmd/server )
+  if [ "$arch" = "amd64" ]; then
+    local cc
+    cc="$(ndk_clang x86_64)"
+    echo "  外部链接（NDK）：$cc"
+    ( cd "$SRC" && CGO_ENABLED=1 CC="$cc" GOARCH="$arch" \
+        go build -p 2 -trimpath -ldflags="-s -w" -o "$dest" ./cmd/server )
+  else
+    ( cd "$SRC" && CGO_ENABLED=0 GOARCH="$arch" \
+        go build -p 2 -trimpath -ldflags="-s -w" -o "$dest" ./cmd/server )
+  fi
   python3 - "$dest" "$machine" <<'PY'
 import struct, sys
 path, want = sys.argv[1], int(sys.argv[2], 16)

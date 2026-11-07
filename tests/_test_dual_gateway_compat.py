@@ -352,6 +352,16 @@ class LocalGoRuntimeTests(unittest.TestCase):
         self.assertIn("e_type", self.script)
         self.assertIn("PIE", self.script)
 
+    def test_x86_64_uses_ndk_external_linking(self):
+        # Go 的内部链接器不给 android/amd64 产 PIE：
+        # "android/amd64 requires external (cgo) linking, but cgo is not enabled"
+        # 实测 CI 在第二个 ABI 上挂过一次，这里把外部链接路径钉住。
+        for token in ("CGO_ENABLED=1", "ndk_clang", "ANDROID_NDK_HOME",
+                      "ANDROID_NDK_LATEST_HOME", "linux-android26-clang",
+                      "x86_64", "CC=\"$cc\""):
+            self.assertIn(token, self.script)
+        self.assertIn("ndk_clang x86_64", self.script)
+
     def test_gradle_extracts_native_libs(self):
         # 不解压就没有可 exec 的文件路径，nativeLibraryDir 会是空的。
         self.assertIn("useLegacyPackaging = true", self.gradle)
@@ -508,6 +518,9 @@ class IosLocalGoRuntimeTests(unittest.TestCase):
                           'import "C"', "gwDone", "recover()",
                           "flag.CommandLine", "runGateway()"):
                 self.assertIn(token, generated)
+            # c-archive 不会调用 main，但 runtime 仍引用 main.main：
+            # 少了空壳会报 "function main is undeclared in the main package"。
+            self.assertIn("func main() {}", generated)
 
             # 上游结构变了就必须失败，不能悄悄产出一个跑不起来的库。
             again = subprocess.run([sys.executable, self.prepare_path, tmp],

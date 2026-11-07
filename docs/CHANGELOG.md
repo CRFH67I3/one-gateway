@@ -36,6 +36,13 @@
   重启 / 日志）全部按形态分流，关于页同步改写。两端现在都能**不导入 ZIP** 直接
   选本机形态（Android 设置页新增「本机形态」开关、`Prefs.localKind` 与
   `projectKind` 分离且默认回落），前台服务在 Go 本机模式下不再要求先有导入项目。
+- **CI 首轮实测修掉两处**：① `android/amd64` 报
+  `requires external (cgo) linking, but cgo is not enabled`——Go 内部链接器不给
+  这个 ABI 产 PIE，x86_64 改用 runner 自带的 Android NDK clang +
+  `CGO_ENABLED=1` 外部链接，arm64 仍保持纯 Go 静态 PIE；② iOS c-archive 报
+  `runtime.main_main·f: function main is undeclared`，在 `mobile_bridge.go`
+  里补一个空的 `main()` 满足 runtime 引用。另修 `nm | grep -q` 在 pipefail 下
+  的 SIGPIPE 误判（改成先落盘再 grep）。
 - **CI**：两条移动端流水线新增 `actions/setup-go@v5`（1.26.10）与构建期编译步骤；
   Android 逐包校验 `libgateway.so` 存在且单 ABI，iOS 校验静态库里的
   `StartGateway` / `StopGateway` 符号、主二进制链接结果与「静态库没被当资源入包」；
@@ -44,7 +51,7 @@
   签名的 Go 二进制。Go 版本与 App 版本绑定，ZIP 只用于确认形态与版本，换 Go
   版本要升级 App；Python 型仍可导入 ZIP 热更新。`wb_hub_env` 明确拒绝让 CPython
   托管 Go 型项目。`sync-core.sh` 遇到 Go ZIP 改为提示构建脚本与形态菜单。
-- **测试**：`tests/_test_dual_gateway_compat.py` 从 21 例扩到 37 例，新增
+- **测试**：`tests/_test_dual_gateway_compat.py` 从 21 例扩到 38 例，新增
   `LocalGoRuntimeTests`（Android 构建 / 打包 / 配置 / 生命周期）与
   `IosLocalGoRuntimeTests`（c-archive 接线、桥接模板、真跑一遍
   `prepare-go-bridge.py` 的源码变换、Swift 生命周期与 CI 顺序）。
@@ -72,7 +79,7 @@
   系统切深浅时注入 `wb2api.theme` + `applyTheme()`，两端都不重载页面、不掉登录。
 - **容器仍不含网关源码**：`sync-core.sh` 遇到 Go ZIP 给出可操作的诊断而非空泛
   报错；Go 二进制只在构建期从外部源码生成、随包签名（见上一节）。
-- **测试**：新增 `tests/_test_dual_gateway_compat.py`（初版 21 例，现 37 例：
+- **测试**：新增 `tests/_test_dual_gateway_compat.py`（初版 21 例，现 38 例：
   两种 ZIP 真调 `install()`、三端契约静态比对、iOS 抽取脚本执行、Go 桥接源码
   变换行为测试、可选真实仓库联网验证），套件数 6 → 7；两条移动端流水线在编译前
   也跑它。

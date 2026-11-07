@@ -6,7 +6,8 @@ iOS 不允许 fork/exec 子进程，Go 代码必须静态链接进 App 并在进
 + log.Fatalf + signal.NotifyContext。构建期做几处**机械替换**，既不 fork 上游
 仓库，也不把网关源码放进本仓库：
 
-  * main() -> runGateway()，由 //export StartGateway 显式启动；
+  * main() -> runGateway()，由 //export StartGateway 显式启动，另留一个空的
+    main() 满足 -buildmode=c-archive 的链接要求（runtime 仍引用 main.main）；
   * log.Fatalf -> fatalf：os.Exit(1) 会杀掉整个 iOS App，改成 panic 再 recover；
   * os.Exit(1) 的自更新分支 -> panic：App 内不允许替换自身二进制；
   * signal.NotifyContext -> gatewayContext()：让 Swift 的 StopGateway 能取消服务；
@@ -43,6 +44,12 @@ var (
 	gwDone         chan struct{}
 	gwStopPending  bool
 )
+
+// -buildmode=c-archive 不会调用 main，但 Go 的 runtime 仍引用 main.main，
+// 少了这个空壳会在链接期报
+//   runtime.main_main·f: function main is undeclared in the main package
+// 真正的入口是下面的 StartGateway。
+func main() {}
 
 // fatalf 取代 log.Fatalf：iOS 上 os.Exit(1) 会终止整个 App，改成 panic 后由
 // StartGateway 的 goroutine recover，错误留在外壳的诊断里。
