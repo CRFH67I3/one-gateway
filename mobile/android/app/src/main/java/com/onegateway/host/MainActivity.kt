@@ -128,8 +128,7 @@ class MainActivity : Activity() {
                 loadedUrl = null
                 ui.postDelayed(poller, 200)
             } else if (!hasLocalRuntime()) {
-                // 没有项目、也不是随包内置 Go 形态时，这个按钮的语义是「手动更新」
-                // 而不是「启动」。Go 本机模式不需要 ZIP，按「启动网关」处理。
+                // 还没导入项目时，这个按钮的语义是「手动更新」而不是「启动」。
                 launchProjectImport()
             } else {
                 overlayText.text = getString(R.string.overlay_starting)
@@ -144,24 +143,22 @@ class MainActivity : Activity() {
         // 界面搭完之后统一刷一次外壳配色，深浅两档都由它决定。
         applyShellColors()
 
-        // 只对「已经导入过项目、或选了随包内置的 Go 形态」的机器自动启动：
-        // 首次安装仍要先看到导入引导；远程接入不需要本地进程，交给状态轮询即可。
+        // 只对「已经导入过项目」的机器自动启动：首次安装仍要先看到导入引导；
+        // 远程接入不需要本地进程，交给状态轮询即可。
         if (Prefs.autoStart(this) && !GatewayProfile.isRemote(this) &&
-            (GatewayBridge.projectRoot(this) != null || GatewayProfile.isLocalGo(this))) {
+            GatewayBridge.projectRoot(this) != null) {
             GatewayService.send(this, GatewayService.ACTION_START)
         }
     }
 
     /**
-     * 本机是否已经有一个「不需要再导入 ZIP」的运行时。
+     * 本机是否已经有一个「能直接显示面板」的运行时。
      *
-     * 远程接入连的是别的设备；Go 本机形态跑的是随包签名的二进制；两者都可以
-     * 在没有导入项目的情况下直接显示面板。只有「Python 型且没导入 ZIP」才是
-     * 真正的空壳，需要首装引导覆盖层。
+     * 远程接入连的是别的设备；已导入的 Python 项目由本地 CPython 托管。两者都
+     * 不需要首装引导覆盖层。只有「没开远程且没导入 ZIP」才是真正的空壳。
      */
     private fun hasLocalRuntime(): Boolean =
-        GatewayProfile.isRemote(this) || GatewayProfile.isLocalGo(this) ||
-            GatewayBridge.projectRoot(this) != null
+        GatewayProfile.isRemote(this) || GatewayBridge.projectRoot(this) != null
 
     /**
      * 把外壳（状态栏、顶栏、覆盖层、按钮、WebView 首帧底色）刷成当前系统的深浅。
@@ -221,9 +218,6 @@ class MainActivity : Activity() {
             "window.dispatchEvent(new CustomEvent('wb:system-theme',{detail:{dark:$dark}}))",
             null,
         )
-        // Go 面板不认上面这个事件：它的主题存在 localStorage['wb2api.theme']，
-        // 由 applyTheme() 刷 data-theme。两套脚本互不干扰，Python 面板会忽略后半段。
-        webView.evaluateJavascript(GatewayProfile.themeScript(dark), null)
         // 页面没有重新加载，URL 里的 sysdark 还是旧值。这里同步标记，
         // 否则状态轮询（render）会发现 loadedUrl != panelUrl 而立刻 loadUrl，
         // 等于白换肤——刚保住的登录态照样没了。
@@ -248,10 +242,6 @@ class MainActivity : Activity() {
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 swipe.isRefreshing = false
-                // 页面脚本已就绪，补一次 Go 面板的主题值：WebView 的
-                // prefers-color-scheme 跟的是 App 主题（外壳是 Light），手机切深色
-                // 时它仍报浅色，必须由外壳把系统值直接写进页面。
-                webView.evaluateJavascript(GatewayProfile.themeScript(systemDark()), null)
             }
 
             override fun onReceivedError(
@@ -444,11 +434,9 @@ class MainActivity : Activity() {
         io.execute {
             GatewayService.send(this, GatewayService.ACTION_STOP)
             Thread.sleep(300)
-            val download = GatewayBridge.downloadProjectZip(
+            val download =             GatewayBridge.downloadProjectZip(
                 this,
-                // 两个导入入口不变；下载哪一份仓库由设置里的「网关源」决定，
-                // 默认仍是 Python 型，切到 Go 源后拿的是另一份 main 快照。
-                urls = GatewayBridge.sourceZipUrls(Prefs.source(this)),
+                urls = GatewayBridge.PROJECT_ZIP_URLS,
                 onAttempt = { index, count ->
                     ui.post {
                         if (autoImporting) {
@@ -491,7 +479,7 @@ class MainActivity : Activity() {
     /** 自动导入/更新失败后的收尾：恢复按钮与引导文案，让用户能直接再试一次。 */
     private fun finishAutoImport(message: String?) {
         autoImporting = false
-        // 远程接入与随包内置的 Go 形态本来就不导入项目，失败时同样该把覆盖层
+        // 远程接入本来就不导入项目，失败时同样该把覆盖层
         // 收起、回到面板重试。
         val hasProject = hasLocalRuntime()
         overlayAction.isEnabled = true
@@ -549,11 +537,6 @@ class MainActivity : Activity() {
                 Toast.LENGTH_LONG,
             ).show()
             finishAutoImport(null)
-            if (result.optString("kind") == GatewayProfile.GO) {
-                // 安装本身是成功的，但这里跑的不是 ZIP 里的源码：说清楚二进制
-                // 随包签名、版本与 App 绑定，别让用户以为导入 ZIP 就能升级 Go 网关。
-                Toast.makeText(this, R.string.project_go_remote_hint, Toast.LENGTH_LONG).show()
-            }
             // 置空 loadedUrl：面板要按新版本重新载一次，否则 WebView 里还是
             // 旧项目 render 出来的那一页。
             loadedUrl = null
@@ -588,9 +571,7 @@ class MainActivity : Activity() {
      * 「跟随系统」就会一直停在浅色。把系统值直接放进 URL，页面脚本在首帧之前就能
      * 读到，不依赖任何原生注入的时序。
      *
-     * 面板路径由 [GatewayProfile] 按形态给出：Python 型是 `/`，Go 型是 `/panel/`；
-     * 远程接入时前缀也不是 127.0.0.1，而是用户填的那台设备。`?sysdark=` 对 Go
-     * 面板无害（它不读这个参数），深浅由 themeScript 注入补齐。
+     * 面板路径固定是 `/`；远程接入时前缀不是 127.0.0.1，而是用户填的那台设备。
      */
     private fun panelUrl(port: Int): String =
         GatewayProfile.panelBase(this, port) + "?sysdark=" + (if (systemDark()) "1" else "0")
@@ -687,6 +668,10 @@ class MainActivity : Activity() {
             text = getString(R.string.settings_lan)
             isChecked = Prefs.lan(this@MainActivity)
         }
+        val portHopSwitch = Switch(this).apply {
+            text = getString(R.string.settings_port_hop)
+            isChecked = Prefs.portHop(this@MainActivity)
+        }
         val autoSwitch = Switch(this).apply {
             text = getString(R.string.settings_autostart)
             isChecked = Prefs.autoStart(this@MainActivity)
@@ -698,18 +683,6 @@ class MainActivity : Activity() {
         val remoteInput = EditText(this).apply {
             hint = getString(R.string.settings_remote_address)
             setText(Prefs.remoteBase(this@MainActivity))
-        }
-        val goSwitch = Switch(this).apply {
-            text = getString(R.string.settings_remote_kind)
-            isChecked = Prefs.remoteKind(this@MainActivity) == GatewayProfile.GO
-        }
-        val localKindSwitch = Switch(this).apply {
-            text = getString(R.string.settings_local_kind)
-            isChecked = Prefs.localKind(this@MainActivity) == GatewayProfile.GO
-        }
-        val sourceSwitch = Switch(this).apply {
-            text = getString(R.string.settings_source_go)
-            isChecked = Prefs.source(this@MainActivity) == GatewayProfile.GO
         }
         val remoteHint = TextView(this).apply {
             text = getString(R.string.settings_hint_remote)
@@ -724,12 +697,10 @@ class MainActivity : Activity() {
         container.addView(portLabel)
         container.addView(portInput)
         container.addView(lanSwitch)
+        container.addView(portHopSwitch)
         container.addView(autoSwitch)
         container.addView(remoteSwitch)
         container.addView(remoteInput)
-        container.addView(goSwitch)
-        container.addView(localKindSwitch)
-        container.addView(sourceSwitch)
         container.addView(remoteHint)
         container.addView(hint)
 
@@ -748,26 +719,18 @@ class MainActivity : Activity() {
                     Toast.makeText(this, R.string.settings_bad_address, Toast.LENGTH_LONG).show()
                     return@setPositiveButton
                 }
-                val newKind = if (goSwitch.isChecked) GatewayProfile.GO else GatewayProfile.PYTHON
-                val normalised = GatewayProfile.normaliseBase(rawBase, newKind)
-                val sourceChanged = sourceSwitch.isChecked != (Prefs.source(this) == GatewayProfile.GO)
-                val localKindChanged = localKindSwitch.isChecked !=
-                    (Prefs.localKind(this) == GatewayProfile.GO)
+                val normalised = GatewayProfile.normaliseBase(rawBase)
                 val remoteChanged =
                     remoteSwitch.isChecked != Prefs.remote(this) ||
-                        normalised != GatewayProfile.normaliseBase(
-                            Prefs.remoteBase(this), Prefs.remoteKind(this)) ||
-                        newKind != Prefs.remoteKind(this) ||
-                        sourceChanged || localKindChanged
-                val changed = port != Prefs.port(this) || lanSwitch.isChecked != Prefs.lan(this)
+                        normalised != GatewayProfile.normaliseBase(Prefs.remoteBase(this))
+                val changed = port != Prefs.port(this) || lanSwitch.isChecked != Prefs.lan(this) ||
+                    portHopSwitch.isChecked != Prefs.portHop(this)
                 Prefs.setPort(this, port)
                 Prefs.setLan(this, lanSwitch.isChecked)
+                Prefs.setPortHop(this, portHopSwitch.isChecked)
                 Prefs.setAutoStart(this, autoSwitch.isChecked)
                 Prefs.setRemote(this, remoteSwitch.isChecked)
                 Prefs.setRemoteBase(this, normalised)
-                Prefs.setRemoteKind(this, newKind)
-                Prefs.setSource(this, if (sourceSwitch.isChecked) GatewayProfile.GO else GatewayProfile.PYTHON)
-                Prefs.setLocalKind(this, if (localKindSwitch.isChecked) GatewayProfile.GO else GatewayProfile.PYTHON)
                 if (changed || remoteChanged) {
                     // 面板地址变了就要重新载一次；远程模式没有本地进程可重启，
                     // 只要让轮询立刻按新地址探一次即可。
@@ -815,21 +778,14 @@ class MainActivity : Activity() {
         val body = buildString {
             append(getString(R.string.about_app_version, BuildConfig.VERSION_NAME))
             append("\n\n")
-            val mode = when {
-                GatewayProfile.isRemote(this@MainActivity) -> "远程接入"
-                GatewayProfile.isLocalGo(this@MainActivity) -> "本机运行（随包内置）"
-                else -> "本地托管"
-            }
-            append(getString(R.string.about_mode,
-                GatewayProfile.label(GatewayProfile.kind(this@MainActivity)), mode))
+            val mode = if (GatewayProfile.isRemote(this@MainActivity)) "远程接入" else "本地托管"
+            append(getString(R.string.about_mode, GatewayProfile.label(), mode))
             append('\n')
             append(getString(R.string.about_endpoint,
                 GatewayProfile.baseUrl(this@MainActivity, Prefs.port(this@MainActivity))))
             append("\n\n")
             if (root == null && GatewayProfile.isRemote(this@MainActivity)) {
                 append(getString(R.string.about_remote_hint))
-            } else if (root == null && GatewayProfile.isLocalGo(this@MainActivity)) {
-                append(getString(R.string.about_local_go_hint))
             } else if (root == null) {
                 append(getString(R.string.project_none_hint))
             } else {
@@ -877,33 +833,26 @@ class MainActivity : Activity() {
         val state = GatewayService.lastStatus
         // 远程接入没有「自己的运行环境」可问，能不能用只看目标地址通不通。
         if (GatewayProfile.isRemote(this)) {
-            return probeHealth(
-                GatewayProfile.healthUrl(this, Prefs.port(this)), GatewayProfile.kind(this))
+            return probeHealth(GatewayProfile.healthUrl(this, Prefs.port(this)))
         }
         if (state == null || !state.optBoolean("running")) {
             return Health(false, 0, 0, state?.optString("error").orEmpty())
         }
-        return probeHealth(
-            GatewayProfile.healthUrl(this, Prefs.port(this)), GatewayProfile.kind(this))
+        return probeHealth(GatewayProfile.healthUrl(this, Prefs.port(this)))
     }
 
-    /**
-     * 按形态探活：Python 型 `GET /health`（accounts / accounts_ready），
-     * Go 型 `GET /healthz`（total / healthy）。后者在池不可服务时回 503，
-     * 响应体仍带数据，要读 errorStream 而不是当成连不上。
-     */
-    private fun probeHealth(urlText: String, kind: String): Health {
+    /** 探活：`GET /health`（accounts / accounts_ready），只有 200 算可达。 */
+    private fun probeHealth(urlText: String): Health {
         val connection = URL(urlText).openConnection() as HttpURLConnection
         return try {
             connection.connectTimeout = 1500
             connection.readTimeout = 1500
             connection.requestMethod = "GET"
             val code = connection.responseCode
-            if (!GatewayProfile.acceptsHealthCode(kind, code)) return Health(false, 0, 0)
-            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
-            val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            if (code != 200) return Health(false, 0, 0)
+            val body = connection.inputStream.bufferedReader().use { it.readText() }
             val json = if (body.isBlank()) JSONObject() else JSONObject(body)
-            val (accounts, usable) = GatewayProfile.normaliseHealth(kind, json)
+            val (accounts, usable) = GatewayProfile.normaliseHealth(json)
             Health(true, accounts, usable)
         } catch (t: Throwable) {
             Health(false, 0, 0)
@@ -920,9 +869,8 @@ class MainActivity : Activity() {
         // 的瞬间把面板载进来」三种错觉。等收尾（finishAutoImport）之后再交给轮询。
         if (autoImporting) return
 
-        // 真正空壳（Python 型且没导入 ZIP）才提示「导入压缩包」。远程接入的
-        // 网关在别处跑，Go 本机形态跑随包签名的二进制，两者都不需要导入 ZIP，
-        // 不该被这段引导挡住面板。
+        // 真正空壳（没开远程且没导入 ZIP）才提示「导入压缩包」。远程接入的
+        // 网关在别处跑，不需要导入 ZIP，不该被这段引导挡住面板。
         if (!hasLocalRuntime()) {
             statusDot.setBackgroundResource(R.drawable.dot_idle)
             statusText.text = getString(R.string.status_no_project)

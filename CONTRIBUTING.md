@@ -19,13 +19,9 @@
    - **干净检出**：`git status --porcelain` 为空（套件不许写脏仓库）；
    - **构建**：改动 Android 外壳时 `./gradlew assembleArm64Release` 成功；改动 iOS 外壳时
      `sync-core.sh` + XcodeGen + `xcodebuild` 成功；
-   - **产物纯度**：APK 里不得出现 `*.py` / `dashboard.html` / `assets/core/`（唯一例外是
-     构建期从外部源码编译、随包签名的 `lib/<abi>/libgateway.so`）；iOS 包里
-     `app/wb_proxy.py`、`app/dashboard.html`、标准库与二进制扩展齐备，且 Go 静态库
-     只作为链接输入、不作为资源进包；
-   - **Go 链路**（改动 `scripts/*go-gateway.sh` / `prepare-go-bridge.py` / 双形态路由时必做）：
-     Android 用 `setup-go` + 交叉编译产出 PIE ELF，iOS 用 macOS + Xcode 产出 c-archive，
-     两端都要在 CI 里过一遍构建与产物检查；
+   - **产物纯度**：APK 里不得出现 `*.py` / `dashboard.html` / `assets/core/`，
+     也不得出现 `libgateway.so`（Go 形态已整体回退，容器里不许有任何 Go 产物）；
+     iOS 包里 `app/wb_proxy.py`、`app/dashboard.html`、标准库与二进制扩展齐备；
    - **导入链路**（改动导入、解压、切指针或首装 UI 时必做）：真机或模拟器上验证
      「自动导入」与「手动导入」两个入口，导入后面板能打开、`/health` 正常返回。
 3. 冒烟测试任一项失败：**先修复再提交**，不得以「CI 会跑」为由跳过。

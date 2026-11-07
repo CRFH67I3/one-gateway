@@ -4,9 +4,8 @@
 # 本仓库只是容器，不带网关源码。构建时下载一份网关项目 ZIP，按与 Android
 # 「导入项目 ZIP」相同的口径抽出 wb_*.py 与 dashboard.html；换源用
 # GATEWAY_CORE_ZIP_URL，离线构建用 GATEWAY_CORE_ZIP 指一份本地 ZIP。
-# 只有 Python 型网关能作为包内核心；Go 型由 build-go-gateway.sh 在构建期
-# 单独编成随包签名的 c-archive 静态库，不是这里的 wb_*.py 资源（脚本遇到
-# go.mod 会明确报错，避免把 Go 源码误当 Python 核心塞进包）。
+# 只有 Python 型网关能作为包内核心；Go 源码包会被明确拒绝（脚本遇到
+# go.mod 会报错，避免把跑不起来的 Go 源码误当 Python 核心塞进包）。
 #
 # 包内布局严格照 CPython 官方文档《Using Python on iOS》第 7 步 `install_python`
 # 的产物来（BeeWare python-app-support 的 USAGE.md 给的初始化代码也一致）：
@@ -68,11 +67,9 @@ with zipfile.ZipFile(zip_path) as zf:
         picked.append((name, base))
     if not any(base == "wb_proxy.py" for _, base in picked):
         if any(os.path.basename(n) == "go.mod" for n in zf.namelist()):
-            sys.exit("error: 这是 Go 网关源码包（go.mod）。iOS 包内 CPython 只能托管 "
-                     "Python 网关；Go 网关由 scripts/build-go-gateway.sh 在构建期编成 "
-                     "c-archive 静态库随 App 签名，运行时在菜单「本机网关形态…」里切到 "
-                     "Go 即可。要继续注入 Python 核心，请把 GATEWAY_CORE_ZIP_URL 指回 "
-                     "Python 网关仓库。")
+            sys.exit("error: 这是 Go 网关源码包（go.mod）。本容器只运行 Python 网关："
+                     "手机上不能编译 Go、也不能执行下载来的二进制，Go 形态已被移除。"
+                     "请把 GATEWAY_CORE_ZIP_URL 指回 Python 网关仓库。")
         sys.exit("error: ZIP 里找不到 wb_proxy.py（不是网关项目 ZIP？）")
     for name, base in picked:
         with zf.open(name) as src, open(os.path.join(dest, base), "wb") as out:

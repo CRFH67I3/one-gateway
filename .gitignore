@@ -40,10 +40,10 @@ desktop.ini
 # 这条规则留着当绊线：谁要是又把核心拷回来，至少不会入库
 # （tests/_test_android_container_purity.py 会直接判红）。
 mobile/android/app/src/main/assets/core/
-# Go 网关二进制：构建期由 scripts/build-go-gateway.sh 从外部仓库交叉编译后注入，
-# 随 APK 签名，但源码与二进制都不入库（每次 CI 重新生成）。
+# 容器已回退为纯 Python 托管：这条规则留当绊线，防止旧构建脚本把
+# libgateway.so 又生成出来（tests/_test_android_container_purity.py 会判红）。
 mobile/android/app/src/main/jniLibs/
-# iOS 侧同理：Go 的 c-archive 静态库与头文件由 scripts/build-go-gateway.sh 生成。
+# iOS 侧同理：Go 的 c-archive 静态库与头文件是旧架构的遗留，不该再出现。
 mobile/ios/OneGateway/GoGateway/*.a
 mobile/ios/OneGateway/GoGateway/*.h
 # iOS 包内资源：app/ 是构建时从外部 ZIP 注入的网关核心 + 容器桥接层，

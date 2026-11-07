@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// 沙盒里的两个关键路径。
@@ -33,8 +34,10 @@ enum Settings {
     private static let dynamicIslandKey = "hub.dynamicIsland"
     private static let remoteKey = "hub.remote"
     private static let remoteBaseKey = "hub.remoteBase"
-    private static let remoteKindKey = "hub.remoteKind"
-    private static let localKindKey = "hub.localKind"
+    private static let portHopKey = "hub.portHop"
+
+    /// 端口被占用时顺延探测的上限：8788 起最多试到 8797。
+    static let portHopLimit = 10
 
     /// 旧版本没写过这个键时用调用方给的默认值，而不是 `Bool()` 的 false。
     private static func storedBool(_ key: String, default fallback: Bool) -> Bool {
@@ -73,14 +76,31 @@ enum Settings {
         set { UserDefaults.standard.set(newValue, forKey: lanKey) }
     }
 
-    // MARK: - 形态与远程接入
-
-    /// 本机跑哪一套网关：Python 用内嵌 CPython，Go 用随包签名的静态库。
-    /// 默认 Python，保持旧版本升级后的行为不变。
-    static var localKind: String {
-        get { UserDefaults.standard.string(forKey: localKindKey) ?? GatewayProfile.python }
-        set { UserDefaults.standard.set(newValue, forKey: localKindKey) }
+    /// 端口被占用时自动顺延（+1 递增探测，默认关）。
+    /// 关闭时保持原行为：预设端口被占就由网关报「端口被占用」，手动处理。
+    static var portHop: Bool {
+        get { UserDefaults.standard.bool(forKey: portHopKey) }
+        set { UserDefaults.standard.set(newValue, forKey: portHopKey) }
     }
+
+    /// 启动前解析实际端口：开了 portHop 就从 requested（缺省当前设置）开始
+    /// 探测，被占则 +1 递增（最多 portHopLimit 个），把生效值写回 port——
+    /// 状态栏、面板与通知里的地址自然都指向真正在服务的端口。
+    /// 开关关闭时原样返回，不做任何探测。
+    static func effectivePort(from requested: Int? = nil) -> Int {
+        let preferred = requested ?? port
+        guard portHop else { return preferred }
+        var candidate = preferred
+        var hops = 0
+        while PortProbe.busy(candidate) && hops < portHopLimit {
+            candidate = candidate >= 65535 ? 1024 : candidate + 1
+            hops += 1
+        }
+        if candidate != preferred { port = candidate }
+        return candidate
+    }
+
+    // MARK: - 远程接入
 
     /// 打开后不启动任何本地网关，容器只做面板与探活。
     static var remoteEnabled: Bool {
@@ -93,11 +113,25 @@ enum Settings {
         get { UserDefaults.standard.string(forKey: remoteBaseKey) ?? "" }
         set { UserDefaults.standard.set(newValue, forKey: remoteBaseKey) }
     }
+}
 
-    /// 默认 Go：Python 形态通常直接本地托管，远程多半是另一套实现。
-    static var remoteKind: String {
-        get { UserDefaults.standard.string(forKey: remoteKindKey) ?? GatewayProfile.go }
-        set { UserDefaults.standard.set(newValue, forKey: remoteKindKey) }
+enum PortProbe {
+    /// 连得上 = 端口被占（不管对方是不是我们的网关）；连不上（拒绝/超时）
+    /// = 空闲。回环上的拒绝是立即返回的，阻塞式 connect 足够。
+    static func busy(_ port: Int) -> Bool {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = UInt16(clamping: port).bigEndian
+        addr.sin_addr = in_addr(s_addr: UInt32(INADDR_LOOPBACK).bigEndian)
+        let result = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        return result == 0
     }
 }
 

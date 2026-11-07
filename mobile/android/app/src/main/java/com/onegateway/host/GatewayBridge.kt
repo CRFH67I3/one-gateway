@@ -13,14 +13,10 @@ import java.net.URL
  * Kotlin ⇄ Python 的唯一通道。
  *
  * 这个外壳不携带网关源码：APK 里只有 Python 解释器 + 一个薄运行时
- * （`wb_hub_env`），以及构建期从外部仓库编译、随包签名的 Go 二进制
- * （`libgateway.so`）。Python 型网关由用户导入仓库 ZIP 后解压到沙盒里跑；
- * Go 型则由 [GoGateway] 直接启动随包二进制。
+ * （`wb_hub_env`）。Python 型网关由用户导入仓库 ZIP 后解压到沙盒里跑，
+ * 由 CPython 托管、可热更新。
  *
- * 导入层认两种形态，见 [GatewayProfile]：Python 型 ZIP 热更新、CPython 托管；
- * Go 型 ZIP 只用于确认形态与版本，真正运行的是随包编译的那份代码（平台不允许
- * 执行下载来的可执行文件）。两个导入入口（手动选 ZIP / 自动下载）共用同一套
- * install，交互不变。
+ * 两个导入入口（手动选 ZIP / 自动下载）共用同一套 install，交互不变。
  */
 object GatewayBridge {
     private const val MODULE = "wb_hub_env"
@@ -51,24 +47,8 @@ object GatewayBridge {
     )
 
     /**
-     * 「自动更新」按设置里选的网关源给出下载地址。
-     *
-     * Python 型是默认的 [PROJECT_ZIP_URLS]；Go 型换成另一个外部仓库的 main 快照，
-     * 依然是「镜像优先、直连兜底」的同样三个地址。两份 ZIP 都走同一个
-     * installProject()，能不能在手机里本地跑由形态决定，下载这一步没有区别。
+     * 一次自动导入的下载结果：成功给文件，失败给「每个地址各自为什么失败」。
      */
-    fun sourceZipUrls(kind: String): List<String> {
-        if (kind != GatewayProfile.GO) return PROJECT_ZIP_URLS
-        val repo = GatewayProfile.GO_REPO
-        val branch = GatewayProfile.GO_BRANCH
-        return listOf(
-            "https://v4.gh-proxy.org/https://github.com/$repo/archive/refs/heads/$branch.zip",
-            "https://gh-proxy.com/https://github.com/$repo/archive/refs/heads/$branch.zip",
-            "https://github.com/$repo/archive/refs/heads/$branch.zip",
-        )
-    }
-
-    /** 一次自动导入的下载结果：成功给文件，失败给「每个地址各自为什么失败」。 */
     data class Download(val file: File?, val error: String)
 
     fun ensurePython(context: Context) {
@@ -86,42 +66,21 @@ object GatewayBridge {
     fun projectRoot(context: Context): File? {
         val path = Prefs.projectPath(context) ?: return null
         val dir = File(path)
-        val marker = if (Prefs.projectKind(context) == GatewayProfile.GO) {
-            GatewayProfile.GO_MARKER
-        } else {
-            MARKER
-        }
-        return if (File(dir, marker).isFile) dir else null
+        return if (File(dir, MARKER).isFile) dir else null
     }
 
     /**
      * 导入（或升级）网关项目：把选中的 ZIP 解压到 projects/<时间戳>/。
      *
      * 解压成功才切指针——中途失败时旧项目仍然可用，不会把用户卡在「两个都用不了」。
-     * 返回体里带 version/root/files/kind，界面直接展示。
-     *
-     * Go 型 ZIP 只用于确认形态与版本：手机不能执行下载来的二进制，实际运行的是
-     * APK 内置、随包签名的那份 Go 网关。导入成功后回到本机运行模式（关掉远程开关），
-     * 由 [GatewayService] 拉起 [GoGateway]。两个导入入口走的是同一个 install，交互不变。
+     * 返回体里带 version/root/files，界面直接展示。
      */
     fun installProject(context: Context, zip: File): JSONObject {
         val result = invoke("install", zip.absolutePath, projectsDir(context).absolutePath)
         if (result.optBoolean("ok")) {
-            val kind = result.optString("kind").ifBlank { GatewayProfile.PYTHON }
-            Prefs.setProjectKind(context, kind)
-            // 导入一份形态明确的 ZIP 仍然是最直观的「切换形态」方式，所以同步
-            // 本机形态；设置页里的开关则让用户不下载 ZIP 也能直接切。
-            Prefs.setLocalKind(context, kind)
             Prefs.setProjectPath(context, result.optString("root"))
             Prefs.setProjectVersion(context, result.optString("version"))
             Prefs.setProjectImportedAt(context, System.currentTimeMillis())
-            // 后续「自动更新」跟着当前导入的形态走，别把 Go 用户又拉回 Python 源。
-            Prefs.setSource(context, kind)
-            if (kind == GatewayProfile.GO) {
-                // 本机运行是默认：清掉可能残留的远程配置，避免界面连到别处。
-                Prefs.setRemote(context, false)
-                Prefs.setRemoteKind(context, GatewayProfile.GO)
-            }
         }
         return result
     }
@@ -133,50 +92,25 @@ object GatewayBridge {
     }
 
     /**
-     * 按形态分流：Go 本机运行交给 [GoGateway]（Java 子进程），Python 交给
-     * 沙盒里的 CPython。上层 [GatewayService] 与界面完全不用知道差别。
+     * 启动 / 停止已导入的 Python 网关，交给沙盒里的 CPython。上层
+     * [GatewayService] 与界面完全不用知道差别。
      */
-    private fun localGo(context: Context): Boolean = GatewayProfile.isLocalGo(context)
-
     fun start(context: Context, port: Int, lan: Boolean): JSONObject {
-        // 启动前把另一侧停干净：形态切换（或异常退出）可能留下残留进程占着
-        // 端口，新形态一绑就「端口被占用」。两侧停止都是幂等的，多调无害。
-        if (localGo(context)) {
-            stopPython(context)
-            return GoGateway.start(context, port, lan)
-        }
-        GoGateway.stop(context)
         val root = projectRoot(context) ?: return notInstalled()
         return invoke("start", root.absolutePath, dataDir(context).absolutePath, port, lan)
     }
 
     fun stop(context: Context): JSONObject {
-        // 两侧都停：切换形态时旧形态的进程必须被清掉，否则它还占着端口。
-        // 返回值仍按当前形态给，调用方语义不变。
-        val goState = GoGateway.stop(context)
-        val pyState = stopPython(context)
-        return if (localGo(context)) goState else (pyState ?: notInstalled())
-    }
-
-    /** 停掉已导入的 Python 网关（没有导入过就什么都不做，返回 null）。 */
-    private fun stopPython(context: Context): JSONObject? {
-        val root = projectRoot(context) ?: return null
-        return try {
-            invoke("stop", root.absolutePath, dataDir(context).absolutePath)
-        } catch (_: Throwable) {
-            // Python 运行时还没就绪或已崩：停止是尽力而为，不阻塞主流程。
-            null
-        }
+        val root = projectRoot(context) ?: return notInstalled()
+        return invoke("stop", root.absolutePath, dataDir(context).absolutePath)
     }
 
     fun status(context: Context): JSONObject {
-        if (localGo(context)) return GoGateway.status(context)
         val root = projectRoot(context) ?: return notInstalled()
         return invoke("status", root.absolutePath, dataDir(context).absolutePath)
     }
 
     fun logTail(context: Context, lines: Int): String {
-        if (localGo(context)) return GoGateway.logTail(context, lines)
         val root = projectRoot(context) ?: return "还没有导入网关项目"
         return try {
             Python.getInstance().getModule(MODULE)

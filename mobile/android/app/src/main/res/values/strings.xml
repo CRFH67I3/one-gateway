@@ -79,34 +79,30 @@
     <string name="settings_port">监听端口（客户端填这个端口）</string>
     <string name="settings_lan">允许局域网访问（自动生成 API Key）</string>
     <string name="settings_autostart">打开 App 时自动启动网关</string>
-    <string name="settings_hint">修改端口或局域网开关会重启网关；切换接入方式、网关形态或更新源后会重新加载面板。面板默认密码 admin，登录后请立即修改；账号登录、配额与模型配置都在面板里完成，与电脑版完全一致。</string>
+    <string name="settings_port_hop">端口被占用时自动顺延（+1 递增，最多 10 个）</string>
+    <string name="settings_hint">修改端口或局域网开关会重启网关；切换接入方式后会重新加载面板。面板默认密码 admin，登录后请立即修改；账号登录、配额与模型配置都在面板里完成，与电脑版完全一致。</string>
     <string name="settings_bad_port">端口需在 1024–65535 之间</string>
 
-    <!-- 双形态兼容：Go 网关默认本机运行，远程接入改为可选 -->
+    <!-- 远程接入（可选）：不本地托管，容器只做面板与探活 -->
     <string name="settings_remote">连接外部网关（不本地托管）</string>
-    <string name="settings_remote_address">地址：127.0.0.1:7863 或 https://host:port</string>
-    <string name="settings_remote_kind">远程形态：Go 网关（面板 /panel/、探活 /healthz）</string>
-    <string name="settings_local_kind">本机形态：Go 网关（随包内置，无需导入 ZIP）</string>
-    <string name="settings_source_go">自动更新下载 Go 仓库 ZIP</string>
-    <string name="settings_hint_remote">Go 网关在构建期编译进安装包并随包签名：勾选上面的「本机形态」即可直接运行，不必先导入 ZIP；导入 Go 源码包只用于确认形态与版本，不能替换二进制（换版本要升级 App）。需要连电脑/服务器上已运行的实例时再打开「连接外部网关」。Python 网关仍可导入 ZIP 热更新。</string>
-    <string name="settings_bad_address">地址需形如 127.0.0.1:7863 或 192.168.1.5:7863</string>
+    <string name="settings_remote_address">地址：127.0.0.1:8788 或 https://host:port</string>
+    <string name="settings_hint_remote">需要连电脑/服务器上已运行的实例时再打开「连接外部网关」。本机运行则照旧：导入网关项目 ZIP（自动更新或手动选择）即可热更新运行。</string>
+    <string name="settings_bad_address">地址需形如 127.0.0.1:8788 或 192.168.1.5:8788</string>
     <string name="status_remote_running">远程网关 · %1$s · 账号 %2$d/%3$d</string>
     <string name="status_remote_stopped">远程网关未连接</string>
     <string name="overlay_retry">重试连接</string>
-    <string name="overlay_remote_failed">连不上远程网关：%1$s\n\n请确认网关已在目标设备运行、地址与端口正确；Go 网关的面板在 /panel/，导入的源码包只用于识别形态。</string>
+    <string name="overlay_remote_failed">连不上远程网关：%1$s\n\n请确认网关已在目标设备运行、地址与端口正确。</string>
     <string name="notif_remote_title">远程网关接入</string>
     <string name="notif_remote_text">面板来自 %1$s，本 App 不托管网关进程</string>
     <string name="log_remote">远程接入模式下没有本地启动日志。\n日志请看运行网关那一侧的控制台。</string>
-    <string name="project_go_remote_hint">已识别 Go 网关源码包：手机上不能执行下载来的二进制，实际运行的是随安装包签名的内置 Go 网关，正在本机启动。源码包只用来确认形态与版本，换版本请升级 App。</string>
     <string name="about_mode">接入方式：%1$s · %2$s</string>
     <string name="about_endpoint">网关地址：%1$s</string>
     <string name="about_remote_hint">当前是远程接入，不需要在本机导入网关项目；网关本体运行在填写的设备上。</string>
-    <string name="about_local_go_hint">当前运行的是随安装包签名的内置 Go 网关，不需要导入源码包。它的版本与 App 绑定，换版本请升级 App；导入 Go 源码包只会刷新形态与版本信息，不会替换二进制。</string>
 
     <!-- 日志 -->
     <string name="log_empty">暂无日志</string>
 
     <!-- 关于与项目信息（合并成一个对话框） -->
     <string name="about_app_version">App 版本：%1$s</string>
-    <string name="about_body">OneGateway 是网关宿主容器：App 提供 CPython 环境、随包签名的 Go 网关二进制、常驻托管与面板外壳，仓库本身不含网关源码。默认导入 Python 型网关（ZIP 热更新），Go 型网关由构建期交叉编译后内置、本机运行，源码包只用于确认形态与版本。两个更新入口与交互不变。账号、配额、模型目录与用量统计都在网关那一侧处理。</string>
+    <string name="about_body">OneGateway 是网关宿主容器：App 提供 CPython 环境、常驻托管与面板外壳，仓库本身不含网关源码。导入 Python 型网关项目 ZIP（自动更新或手动选择）即可本机运行、热更新；需要连别的设备时打开「连接外部网关」。账号、配额、模型目录与用量统计都在网关那一侧处理。</string>
 </resources>

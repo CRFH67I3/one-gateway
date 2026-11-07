@@ -32,8 +32,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # 两个 ABI flavor × debug/release = 4 个变体，比单包时多出一倍打包次数；
-    # 再加 Go 工具链与两份交叉编译，放宽到 90。
+    # 两个 ABI flavor × debug/release = 4 个变体，比单包时多出一倍打包次数。
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
@@ -50,17 +49,6 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "9.6.0"
-      # Go 网关在构建期从外部仓库源码交叉编译，产物随 APK 签名；仓库不含它的源码。
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.26.10"
-          cache: false
-
-      - name: Build embedded Go gateway binaries
-        run: |
-          chmod +x mobile/android/scripts/build-go-gateway.sh
-          bash mobile/android/scripts/build-go-gateway.sh
-          ls -lh mobile/android/app/src/main/jniLibs/*/libgateway.so
 
       - name: Syntax gate (container bridge)
         run: |
@@ -73,8 +61,8 @@ jobs:
           # 「自动导入最新版」的接线与解压契约：按钮还在、下载地址首选镜像、
           # ZIP 结构与解压逻辑对得上。纯离线、亚秒级，编译前先把这类低级错误拦掉。
           python tests/_test_android_auto_import.py
-          # 双形态兼容：两种 ZIP 的识别、三端地址/字段契约、Go 二进制绝不来自下载。
-          python tests/_test_dual_gateway_compat.py
+          # 容器契约：ZIP 识别、三端地址/字段契约、容器绝不携带网关源码。
+          python tests/_test_gateway_container.py
 
       # 固定 debug 签名。
       # AGP 在没有 debug.keystore 时会**现场生成**一对随机密钥：alias
@@ -118,8 +106,8 @@ jobs:
           set -euo pipefail
           shopt -s globstar
           ls -lh mobile/android/app/build/outputs/apk/**/*.apk
-          # 容器模式：APK 里只应有 Python 运行时、薄桥接层与构建期编译的 Go
-          # 二进制，**不应**再有网关源码（Python 型仍靠导入 ZIP，可热更新）。
+          # 容器模式：APK 里只应有 Python 运行时与薄桥接层，**不应**再有网关源码
+          # （Python 型靠导入 ZIP，可热更新）。
           # 一旦 assets/core 又冒出来，说明构建脚本还在把核心打进包——那会让
           # 「导入 ZIP 升级网关」的版本判断失效（包内旧核心与导入的新项目打架）。
           # 同时校验拆包真的生效：一个包只能带一个 ABI 的原生库、一份 ABI 专属标准库。
@@ -135,12 +123,11 @@ jobs:
               echo "::error::$apk 里出现了网关文件（assets/core 或 .py/.pyc/dashboard.html）"
               exit 1
             fi
-            # 随包签名的 Go 网关必须在：没有它，Go 型就退回「只识别不运行」了。
-            # 名字固定 libgateway.so，放在 jniLibs/<abi>/，由安装器解压到只读目录。
-            go_libs=$(printf '%s\n' "$listing" \
-              | awk '$4 ~ /^lib\/[^\/]+\/libgateway\.so$/ {print $4}')
-            [ -n "$go_libs" ] || { echo "::error::$apk 缺少随包内置的 Go 网关二进制"; exit 1; }
-            echo "   内置 Go 网关: $go_libs"
+            # 容器里也不该有 Go 产物：libgateway.so 是旧架构的遗留，出现即失败。
+            if printf '%s\n' "$listing" | grep -q "libgateway\.so"; then
+              echo "::error::$apk 里出现了 Go 网关二进制（容器已回退为纯 Python 托管）"
+              exit 1
+            fi
             # 网关（Python 型）是纯标准库实现；带出任何 pip 依赖都说明有东西被搬进了 APK。
             deps=$(unzip -p "$apk" assets/chaquopy/requirements-common.imy 2>/dev/null | tr -d '\000' | wc -c)
             echo "   依赖清单字节数: $deps（空包约 22 B，只是 ZIP 尾）"

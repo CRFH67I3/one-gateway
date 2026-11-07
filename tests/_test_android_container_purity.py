@@ -1,10 +1,11 @@
 """APK 必须只是「网关运行容器」：不含任何网关**源码**，源码只能靠导入。
 
-区分「仓库」与「产物」：仓库零网关源码；APK 里**允许**有构建期从外部仓库源码
-交叉编译、随包签名的 `lib/<abi>/libgateway.so`（Go 型网关）。两个平台都禁止执行
-下载到可写目录的未签名 ELF，这份二进制是唯一的例外，且不能由导入的 ZIP 替换。
-这里守的是另一条边界：不能把 `.py` / `dashboard.html` / `assets/core/` 这类
-**可热更新的源码**打进包，否则「导入 ZIP 升级网关」的版本判断会失效。
+区分「仓库」与「产物」：仓库零网关源码；APK 里也不该有任何 Go 产物——
+「构建期交叉编译、随包签名 libgateway.so」的 Go 型方案已被整体回退，现在
+APK 里唯一允许的原生库是 Chaquopy 自带的。两个平台都禁止执行下载到可写目录
+的未签名 ELF，容器也不做任何 exec。这里守的是另一条边界：不能把 `.py` /
+`dashboard.html` / `assets/core/` 这类**可热更新的源码**打进包，否则「导入
+ZIP 升级网关」的版本判断会失效。
 
 这条边界比功能更容易被悄悄破坏：随手把一个 `.py`、一份 `dashboard.html` 或
 一个 `assets/core/` 目录放进 `app/src/main/`，Gradle 会安静地打进去，谁也不会
@@ -13,14 +14,14 @@
 所以分四层钉住：
 
   1. **源码树**：`app/src/main` 下不存在网关文件（`wb_*.py` / `dashboard.html` /
-     `assets/core`），也没有第二份 Python 模块；`jniLibs/` 由构建脚本生成、不入库；
+     `assets/core`），也没有第二份 Python 模块；`jniLibs/` 不入库也不该有产物；
   2. **薄运行时**：`wb_hub_env` 只做「解压 ZIP、找项目根、把导入的那份跑起来」，
-     不定义账号池/HTTP 处理器，也不做任何业务判断，更不托管 Go 型项目；
-  3. **外壳**：Kotlin 不从 assets 读代码、不用 `file://` 加载本地页面；Python 型
-     `start()` 必须先有导入的项目，Go 型走随包签名的二进制、不需要导入 ZIP；
+     不定义账号池/HTTP 处理器，也不做任何业务判断；
+  3. **外壳**：Kotlin 不从 assets 读代码、不用 `file://` 加载本地页面；
+     `start()` 必须先有导入的项目；
   4. **产物**：本机能找到 APK 时直接翻包——没有 `*.py`、没有 `dashboard.html`、
      没有 `assets/core/`，`assets/chaquopy/app.imy` 里只有薄运行时；
-     `lib/<abi>/libgateway.so` 必须存在且是 64-bit PIE。
+     也不许再出现 `lib/<abi>/libgateway.so`。
 
 Run:
     python tests/_test_android_container_purity.py
@@ -28,7 +29,6 @@ Run:
 import io
 import os
 import re
-import struct
 import unittest
 import zipfile
 
@@ -227,20 +227,13 @@ class ApkTests(unittest.TestCase):
                or os.path.basename(n) in ("wb_proxy.py", "wb_proxy.pyc")]
         self.assertEqual([], bad, "APK 里出现了网关文件")
 
-    def test_apk_carries_the_signed_go_binary_as_a_pie(self):
-        # Go 型网关随包签名：构建期编译的 PIE ELF 必须在，且每个包只能有一个 ABI。
+    def test_apk_has_no_go_binary(self):
+        # Go 型「随包签名 libgateway.so」的方案已整体回退：容器里不该再出现
+        # 任何 Go 产物。这条断言反向钉住，防止旧构建脚本悄悄复活。
         with zipfile.ZipFile(self.apk) as zf:
             libs = [n for n in zf.namelist()
                     if re.match(r"lib/[^/]+/libgateway\.so$", n)]
-            self.assertEqual(1, len(libs), "APK 里应有且只有一份 libgateway.so")
-            header = zf.read(libs[0])[:20]
-        self.assertEqual(b"\x7fELF", header[:4], "libgateway.so 不是 ELF")
-        self.assertEqual(2, header[4], "必须是 64-bit ELF")
-        self.assertEqual(3, struct.unpack_from("<H", header, 16)[0],
-                         "Android 只接受 PIE（e_type=3）")
-        machine = struct.unpack_from("<H", header, 18)[0]
-        self.assertIn(machine, (0xB7, 0x3E),
-                      "机器类型应是 AArch64 或 x86_64")
+        self.assertEqual([], libs, "APK 里出现了 Go 网关二进制（容器已回退为纯 Python 托管）")
 
     def test_app_imy_only_has_the_shim(self):
         with zipfile.ZipFile(self.apk) as zf:

@@ -80,7 +80,7 @@ class GatewayService : Service() {
 
     private fun launch() {
         val context = applicationContext
-        // 远程接入不托管任何本地进程：Go 网关跑在别处（电脑 / 服务器 / Termux），
+        // 远程接入不托管任何本地进程：网关跑在别处（电脑 / 服务器 / Termux），
         // 容器只负责显示面板与探活，前台服务不应该占着一条常驻通知。
         if (GatewayProfile.isRemote(context)) {
             active = false
@@ -93,9 +93,7 @@ class GatewayService : Service() {
             return
         }
         // 空壳状态下没什么可启动的：不弹「启动失败」，直接告诉用户下一步该做什么。
-        // Go 本机模式是例外——二进制随包签名在 jniLibs 里，不需要任何导入的
-        // 项目 ZIP 就能跑，不该被「还没有导入网关项目」挡住。
-        if (!GatewayProfile.isLocalGo(context) && GatewayBridge.projectRoot(context) == null) {
+        if (GatewayBridge.projectRoot(context) == null) {
             active = false
             postNotification(
                 getString(R.string.notif_no_project_title),
@@ -103,7 +101,7 @@ class GatewayService : Service() {
             )
             return
         }
-        val port = Prefs.port(context)
+        val port = resolvePort(context)
         val lan = Prefs.lan(context)
         val state = GatewayBridge.start(context, port, lan)
         lastStatus = state
@@ -136,6 +134,36 @@ class GatewayService : Service() {
         worker.execute { GatewayBridge.stop(applicationContext) }
         worker.shutdown()
         super.onDestroy()
+    }
+
+    /**
+     * 决定这次启动用哪个端口。开了「端口被占用时自动顺延」就先探 TCP：
+     * 连得上 = 有服务在听（不管是不是我们的），port+1 继续；连不上
+     * （拒绝/超时）= 空闲。顺延发生时把实际端口写回 Prefs，让状态栏、
+     * 面板与「复制 API 地址」都指向真正在服务的端口。关闭开关时维持
+     * 原行为：直接用预设端口，被占就报「端口被占用」让人手动处理。
+     */
+    private fun resolvePort(context: Context): Int {
+        val preferred = Prefs.port(context)
+        if (!Prefs.portHop(context)) return preferred
+        var port = preferred
+        var hops = 0
+        while (tcpBusy(port) && hops < Prefs.PORT_HOP_LIMIT) {
+            port = if (port >= 65535) 1024 else port + 1
+            hops += 1
+        }
+        if (port != preferred) Prefs.setPort(context, port)
+        return port
+    }
+
+    /** 连得上就说明端口被占；400ms 对本机回环绰绰有余。 */
+    private fun tcpBusy(port: Int): Boolean = try {
+        java.net.Socket().use { socket ->
+            socket.connect(java.net.InetSocketAddress("127.0.0.1", port), 400)
+            true
+        }
+    } catch (_: Throwable) {
+        false
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

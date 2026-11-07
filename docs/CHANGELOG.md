@@ -5,6 +5,35 @@
 
 ## 未发布 / Unreleased
 
+### 回退为纯 Python 容器：移除两端内置的 Go 网关
+
+「两端都本机运行 Go 网关」方案经真机验证可以工作，但随包签名的二进制意味着
+Go 上游每次更新都要重新构建、分发并重装整个 App，热更新彻底失效；而「拉源码
+到设备上编译」在两个平台上都不可行（Android 10+ 的 W^X 禁止从可写目录 exec
+新产物，iOS 只允许运行签名进包的代码）。权衡后整体回退：容器只运行 Python 型
+网关，ZIP 导入即热更新。
+
+- **删除**：Android `GoGateway.kt`、`scripts/build-go-gateway.sh`；iOS
+  `GoBridge.swift`、`prepare-go-bridge.py`、`build-go-gateway.sh`；
+  `GatewayProfile` 的 Go 常量与 `isLocalGo`；`Prefs` 的 `localKind` /
+  `remoteKind` / `source` 键；CI 两条流水线的 `setup-go` 与 Go 构建校验步骤。
+- **导入层**：`wb_hub_env.install()` 改为只认 Python 型；Go 源码包被**明确拒绝**
+  （解压后即清理残留，报错给出原因与替代做法），`start()` / `describe()` 对
+  遗留 Go 目录同样给出一致结论，绝不把跑不起来的项目登记成可用状态。
+- **外壳**：Android 设置对话框去掉「远程形态 / 本机形态 / 更新源」三个 Go 开关；
+  iOS 菜单去掉「本机网关形态…」，远程接入改为单一「连接」动作。探活统一为
+  `GET /health`（只认 200），深浅色统一为 `?sysdark=` + `wb:system-theme` 一条
+  通道（iOS 原 Go 面板注入脚本随之移除）。空壳判定保留：远程接入或已导入
+  项目都直接显示面板。
+- **保留**：真机实测修出的覆盖层判定（`hasLocalRuntime()`）与
+  「端口被占用时自动顺延」开关（默认关）——这两项与形态无关。
+- **CI**：Android 逐包改为断言**没有** `libgateway.so`；iOS 反向校验包内没有
+  Go 静态库。`.gitignore` 保留 `jniLibs/` 与 `GoGateway/*` 规则当绊线。
+- **测试**：`tests/_test_dual_gateway_compat.py` 改写为
+  `tests/_test_gateway_container.py`：Python ZIP 识别、Go ZIP 拒绝（含绕过
+  install 直接喂 Go 目录的防呆）、三端契约对齐、Go 构建脚本已删、端口顺延
+  （Android + iOS）、sync-core 诊断与可选的真实仓库联网用例。
+
 ### 两端都本机运行 Go 网关（构建期编译 + 随包签名）
 
 把 Go 型网关从「只能远程接入」升级为「Android / iOS 都在手机里本机运行」。
@@ -48,6 +77,13 @@
   引用随旧进程丢失，残留的 `libgateway.so` 成了孤儿继续占端口。`stop()` 现在
   会扫 `/proc` 找 cmdline 以 `libgateway.so` 结尾、且 uid 等于自己的残留进程
   补刀（不做越权清理），单进程杀不掉不影响整体收尾。
+- **新增「端口被占用时自动顺延」开关（默认关）**：同一台手机上另跑一份网关
+  （Termux 是典型）时，预设端口起不来。开启后启动网关前先探一次回环 TCP
+  （连得上 = 被占），从预设端口起 +1 递增、最多 10 个，把实际生效的端口写回
+  端口设置——状态栏、面板与「复制 API 地址」都指向真正在服务的端口。关闭时
+  维持原行为：直接报「端口被占用」让人手动处理。Android 在「端口设置」里加
+  开关，iOS 在主菜单里加同名开关；两端启动路径（Go / Python / 重启）统一走
+  顺延解析。
 - **CI 首轮实测修掉两处**：① `android/amd64` 报
   `requires external (cgo) linking, but cgo is not enabled`——Go 内部链接器不给
   这个 ABI 产 PIE，x86_64 改用 runner 自带的 Android NDK clang +

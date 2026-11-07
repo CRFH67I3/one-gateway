@@ -19,13 +19,6 @@ name: mobile-ios
 # The produced IPA is intentionally *unsigned*: signing needs the maintainer's
 # team ID and certificate, which must not live in this repository. Sideload
 # tools (AltStore/Sideloadly) or a local Xcode build with a team can sign it.
-#
-# Besides CPython, the app also carries the Go gateway from
-# misakano7545/workbuddy2api-panel. iOS forbids fork/exec and unsigned code, so
-# scripts/build-go-gateway.sh cross-compiles that external source at build time
-# with -buildmode=c-archive into libgateway.a, which is linked into the main
-# binary and signed with the app. GoBridge.swift starts it in-process. The ZIP
-# is downloaded and discarded during the build; this repo ships no Go source.
 on:
   # 手动触发入口：代理不通、或想用当前 main 立刻重出一份包时用得上。
   workflow_dispatch:
@@ -60,16 +53,9 @@ jobs:
     # iOS 26 SDK 才能编译，因此镜像要能提供 Xcode 26；macos-14 已停止支持。
     # 镜像默认 Xcode 仍是 16.x，下面显式切到 26。
     runs-on: macos-15
-    # CPython 支持包 200MB + Go c-archive 首次编译，比原来多一段时间。
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
-
-      # c-archive 必须与上游 go.mod 的 Go 版本一致（1.26.10）。
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.26.10"
-          cache: false
 
       - name: Select Xcode 26
         run: |
@@ -99,10 +85,8 @@ jobs:
         run: |
           python3 -m compileall -q \
             mobile/shared mobile/ios/OneGateway/PythonBridge
-          # 构建期脚本也要能解析：上游 Go 源码变换错了，到 xcodebuild 阶段才炸太晚。
-          python3 -c "import ast; ast.parse(open('mobile/ios/scripts/prepare-go-bridge.py', encoding='utf-8').read())"
           # 双形态兼容契约：iOS 的 GatewayProfile 与 Android/Python 端必须对齐。
-          python3 tests/_test_dual_gateway_compat.py
+          python3 tests/_test_gateway_container.py
 
       # ~200MB download; cache it so repeat builds skip GitHub Releases.
       - name: Fetch embedded CPython
@@ -140,26 +124,6 @@ jobs:
           DEST=mobile/ios/OneGateway/Resources/app
           python3 -m pip install --quiet --disable-pip-version-check --target "$DEST" certifi
           test -f "$DEST/certifi/cacert.pem"
-
-      # 在生成 .xcodeproj 之前产出静态库：project.yml 把 GoGateway/ 加进
-      # HEADER/LIBRARY_SEARCH_PATHS 并用 -lgateway 链接，缺了它 Xcode 直接报
-      # "library not found for -lgateway" / "StartGateway not found"。
-      - name: Build embedded Go gateway library
-        run: |
-          set -euo pipefail
-          chmod +x mobile/ios/scripts/build-go-gateway.sh
-          bash mobile/ios/scripts/build-go-gateway.sh
-          OUT=mobile/ios/OneGateway/GoGateway
-          test -s "$OUT/libgateway.a"
-          test -s "$OUT/libgateway.h"
-          grep -q "StartGateway" "$OUT/libgateway.h"
-          grep -q "StopGateway" "$OUT/libgateway.h"
-          # 静态库里必须真的有这两个 C 符号，否则 //export 没生效、Swift 链接不过。
-          # 先落盘再 grep：直接 `nm | grep -q` 在 pipefail 下会被 SIGPIPE 判成失败。
-          nm -g "$OUT/libgateway.a" > "$RUNNER_TEMP/libgateway.syms"
-          grep -q "StartGateway" "$RUNNER_TEMP/libgateway.syms"
-          grep -q "StopGateway" "$RUNNER_TEMP/libgateway.syms"
-          ls -lh "$OUT/libgateway.a" "$OUT/libgateway.h"
 
       - name: Generate Xcode project
         run: |
@@ -219,14 +183,7 @@ jobs:
           /usr/libexec/PlistBuddy -c "Print :BGTaskSchedulerPermittedIdentifiers:0" "$APP/Info.plist"
           /usr/libexec/PlistBuddy -c "Print :NSExtension:NSExtensionPointIdentifier" \
             "$APP/PlugIns/OneGatewayWidget.appex/Info.plist"
-          # Go 网关必须已经链进主二进制；符号表被 Release 裁掉时只告警，
-          # 静态库与头文件在构建步骤里已经单独硬校验过。
-          if nm -g "$APP/OneGateway" 2>/dev/null | grep -q "StartGateway"; then
-            echo "   Go 网关 C 入口已链接进主二进制"
-          else
-            echo "::warning::主二进制符号表里没有 StartGateway（Release 可能 strip），请确认 -lgateway 生效"
-          fi
-          # 静态库与头文件是构建输入，不该作为资源拷进包体。
+          # 容器里没有任何 Go 产物：主二进制不该链入网关静态库，包内也不该有残留。
           if find "$APP" \( -name 'libgateway.a' -o -name 'libgateway.h' \) | grep -q .; then
             echo "::error::Go 静态库被当成资源打进了 App 包"
             exit 1

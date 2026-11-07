@@ -1,20 +1,18 @@
 # 移动端容器（iOS / Android）
 
 > **这个仓库只含容器，不含网关源码。** 网关实现（`wb_*.py` / `dashboard.html`、
-> 账号池、调度、计费、面板、Go 的 `cmd/server`）属于外部项目：Android 的 Python 型
-> 在首装时导入，iOS 的 Python 型在构建时从外部 ZIP 注入；Go 型在两端的**构建期**
-> 从外部源码编译成随包签名的二进制。仓库没有任何网关源码或二进制，也不分发网关包。
+> 账号池、调度、计费、面板）属于外部项目：Android 的 Python 型在首装时导入，
+> iOS 的 Python 型在构建时从外部 ZIP 注入。仓库没有任何网关源码或二进制，
+> 也不分发网关包。
 
-容器只做三件事：**装载**（项目 ZIP → App 沙盒）、**托管**（内嵌 CPython 启动 Python
-网关、构建期编译并随包签名的 Go 网关、前台服务 / 后台保活）、**展示**（WebView 面板、
-通知、实时活动）。
+容器只做三件事：**装载**（项目 ZIP → App 沙盒）、**托管**（内嵌 CPython 启动
+Python 网关、前台服务 / 后台保活）、**展示**（WebView 面板、通知、实时活动）。
 
 Android 是**运行时导入** Python 型：APK 里只有 CPython 运行时与薄运行时，首装界面
 两个入口把外部网关项目装进沙盒（详见「Android 的容器模式」）。iOS 是**构建时注入**
 Python 型：`sync-core.sh` 从外部项目 ZIP 拉取核心放进包内，随包交付，没有运行时
-导入界面。Go 型两端都由 `scripts/build-go-gateway.sh` 在构建期编译，Android 出
-`jniLibs/<abi>/libgateway.so`（子进程），iOS 出 `GoGateway/libgateway.a`（静态链接、
-进程内 goroutine）；导入的 Go ZIP 只用来确认形态与版本。
+导入界面。曾短暂支持的「构建期编译、随包签名 Go 网关」已整体回退（详见
+「容器契约与远程接入」）。
 
 > **实现方式：Vibe Coding**
 >
@@ -33,32 +31,26 @@ mobile/
 │   │   ├── java/com/onegateway/host/
 │   │   │   ├── HubApp.kt            # Application：初始化 CPython
 │   │   │   ├── GatewayBridge.kt     # Kotlin ⇄ Python 通道、项目解压与指针、自动下载
-│   │   │   ├── GatewayProfile.kt    # 双形态接入契约：路径 / 字段 / 主题 / 远程地址
-│   │   │   ├── GoGateway.kt         # 随包签名的 Go 网关：从 nativeLibraryDir 起进程
-│   │   │   ├── GatewayService.kt    # 前台服务 + 常驻通知
+│   │   │   ├── GatewayProfile.kt    # 接入契约：路径 / 字段 / 远程地址
+│   │   │   ├── GatewayService.kt    # 前台服务 + 常驻通知（含端口顺延）
 │   │   │   ├── MainActivity.kt      # WebView 加载面板 + 原生菜单
 │   │   │   └── Prefs.kt             # 端口 / 局域网 / 自启 / 当前项目
 │   │   └── python/wb_hub_env.py     # 容器运行时：解压 ZIP、找项目根、托管网关
-│   ├── scripts/build-go-gateway.sh  # 构建期交叉编译两个 ABI 的 libgateway.so
 │   └── app/build.gradle.kts         # 版本号从 mobile/VERSION 读取；不打包网关核心
 └── ios/                         # Swift 外壳 + 内嵌 Python.framework
-    ├── project.yml                  # XcodeGen 工程描述（链接 libgateway.a）
+    ├── project.yml                  # XcodeGen 工程描述
     ├── scripts/sync-core.sh         # 拉取外部 Python 核心 + 铺标准库 + 装 certifi
-    ├── scripts/build-go-gateway.sh  # 构建期生成 Go 的 c-archive 静态库
-    ├── scripts/prepare-go-bridge.py # 把 Go CLI main() 改造成 //export 入口
     ├── scripts/install-python.sh    # 构建后：lib-dynload 的 .so 转 Frameworks/*.framework
     ├── OneGateway/Sources/
     │   ├── PyBridge.swift           # CPython C API 桥（GIL、PYTHONHOME/PYTHONPATH）
-    │   ├── GoBridge.swift           # Go C 接口：StartGateway / StopGateway
     │   ├── RootViewController.swift  # WKWebView 面板 + 前后台让位
     │   ├── BackgroundKeepAlive.swift # iOS 26 持续后台任务（BGContinuedProcessingTask）
     │   ├── LiveActivityController.swift  # 锁屏/灵动岛实时活动（ActivityKit）
     │   ├── BackgroundSettingsViewController.swift  # 「后台保持」三个开关
-    │   ├── CorePaths.swift          # 沙盒路径 / 外壳开关（含远程接入）/ 局域网地址
-    │   ├── GatewayProfile.swift     # 与 Android 对齐的双形态接入契约
-    │   ├── OneGateway-Bridging-Header.h  # #include <Python/Python.h> + "libgateway.h"
+    │   ├── CorePaths.swift          # 沙盒路径 / 外壳开关（含远程接入、端口顺延）/ 局域网地址
+    │   ├── GatewayProfile.swift     # 与 Android 对齐的接入契约
+    │   ├── OneGateway-Bridging-Header.h  # #include <Python/Python.h>
     │   └── AppDelegate.swift
-    ├── OneGateway/GoGateway/        # 构建期生成 libgateway.a / .h（不入库）
     ├── Shared/GatewayActivityAttributes.swift  # 主 App 与 Widget 共享的活动定义
     ├── OneGatewayWidget/          # Widget Extension：Live Activity 的锁屏/灵动岛视图
     ├── OneGateway/PythonBridge/wb_hub_ios.py
@@ -105,69 +97,46 @@ mobile/
 面板同理：`dashboard.html` 是「同源静态页 + JSON 接口」，WebView 直接打开
 `http://127.0.0.1:8788/` 就等于移植了全部界面与交互，面板以后加功能 App 不用改。
 
-## 双形态兼容（Python / Go）
+## 容器契约与远程接入
 
-容器认两种外部网关，两个导入入口与交互不变，差异全部收在
-`GatewayProfile.kt`（Android）/ `GatewayProfile.swift`（iOS）里：
+容器只运行 Python 型外部网关，契约收在 `GatewayProfile.kt`（Android）/
+`GatewayProfile.swift`（iOS）里：
 
-| 契约 | Python 型 | Go 型 |
-|---|---|---|
-| 识别 | `wb_proxy.py` | `go.mod` + `cmd/server/main.go`（或 `internal/panel/index.html`） |
-| 面板 / 探活 | `/` · `/health` | `/panel/` · `/healthz` |
-| 健康字段 | `accounts` / `accounts_ready` | `total` / `healthy`；`/healthz` 回 503 仍算可达 |
-| 默认端口 | 8788 | 7863（导入时读 `config.example.json` 的 `listen`） |
-| 主题 | `?sysdark=` + `wb:system-theme` 事件 | 注入 `localStorage['wb2api.theme']` + `applyTheme()` |
-| 本地托管 | ✅ CPython，ZIP 热更新 | ✅ 构建期编译、随包签名（ZIP 只识别形态/版本） |
+| 契约 | 值 |
+|---|---|
+| 识别标志 | `wb_proxy.py`（Go 源码包 `go.mod` + `cmd/server` 会被明确拒绝） |
+| 面板 / 探活 | `/` · `/health` |
+| 健康字段 | `accounts` / `accounts_ready` |
+| 默认端口 | 8788 |
+| 深浅色 | `?sysdark=` + `wb:system-theme` 事件 |
 
-**平台边界**：两个平台都禁止执行「下载到可写目录的未签名代码」。Android 10+ 的
-W^X 规定禁止从 `app_data_file`（可写私有目录）`execve()`，但允许执行 APK 内
-`/data/app/.../lib/<abi>/`（`apk_data_file`）里随包签名的二进制；iOS 不允许
-fork/exec、也不允许加载未签名代码，但允许静态链接进主二进制的代码。所以
-Go 网关**在构建期**从外部仓库源码编译，两端都本机运行：
+**为什么 Go 形态被回退**：曾实现过「构建期交叉编译、随包签名」的 Go 网关
+（Android `libgateway.so` 子进程 / iOS c-archive 静态库进程内运行），它能绕开
+「禁止执行下载来的 ELF」的平台限制，但代价是 Go 上游每次更新都要重新构建、
+分发并重装整个 App——热更新彻底失效；而「拉源码到设备上编译」在两个平台上
+都不可行（Android 10+ 的 W^X 禁止从可写目录 exec 新产物，iOS 只允许运行
+签名进包的代码）。权衡后回退为纯 Python 托管：Go 源码包由 `install()` 拒绝
+并给出可操作提示。
 
-| | Android | iOS |
-|---|---|---|
-| 构建脚本 | `scripts/build-go-gateway.sh` | `scripts/build-go-gateway.sh` + `prepare-go-bridge.py` |
-| 命令 | `CGO_ENABLED=0 GOOS=android go build ./cmd/server`；**x86_64 例外**：Go 内部链接器不给 `android/amd64` 产 PIE，改用 NDK clang + `CGO_ENABLED=1` 外部链接 | `CGO_ENABLED=1 GOOS=ios go build -buildmode=c-archive ./cmd/server` |
-| 产物 | `jniLibs/{arm64-v8a,x86_64}/libgateway.so`（PIE ELF） | `GoGateway/libgateway.a` + `libgateway.h` |
-| 运行 | `GoGateway.kt` 用 `ProcessBuilder` 从只读 `nativeLibraryDir` 起进程 | `GoBridge.swift` 调 `StartGateway()` 在 App 进程内起 goroutine |
-| 停止 | `destroy()` 进程 | `StopGateway()` 取消 context → `srv.Shutdown()` 优雅停机 |
+**远程接入**（可选，默认关）用于连电脑 / 服务器上已运行的实例。打开后：
 
-Android 必须开 `useLegacyPackaging = true`，否则 `.so` 直接从 APK 映射、没有可
-exec 的文件路径。iOS 的 `prepare-go-bridge.py` 对上游 CLI 做五处**机械替换**
-（`main()` → `runGateway()`、`log.Fatalf` → `fatalf`、`os.Exit(1)` → `panic`、
-`signal.NotifyContext` → `gatewayContext()`、删 `os/signal` import），替换次数全部
-断言，上游结构一变就构建失败而不是悄悄产出坏库。生成的 `mobile_bridge.go` 还留
-一个空的 `main()`：`-buildmode=c-archive` 不调用 main，但 Go 的 runtime 仍引用
-`main.main`，少了会在链接期报 `function main is undeclared in the main package`。
-`StartGateway` 还会串行等待上一轮 `runGateway()` 退出再抢端口，避免 stop→start
-时 bind 失败导致静默停服。
-
-两端写同一份沙盒配置：`listen` 按端口 / 局域网生成、持久化随机 `api_key`、
-`auth_dir` / `state_file` 指绝对路径，并关掉自更新器、定时外连、watchdog、
-日志归档与 metrics。Go 网关版本与 App 版本绑定，**两个更新入口对它只确认形态
-与版本，不能替换二进制**；换版本要升级 App。Python 型仍可热更新。
-
-**远程接入**从「Go 的唯一路径」降级为可选连接方式，用于连电脑 / 服务器上已
-运行的实例。开关**默认关**，不改原有本地托管行为。打开后：
-
-- Android `GatewayService` 与 iOS 的 CPython / GoBridge 都不启动本地进程；
-  `fetchHealth` / `refreshHealth` 打远程地址，`/healthz` 的 503 也读 body 取字段
-  （Android 读 `errorStream`）；
+- Android `GatewayService` 与 iOS 的 CPython 都不启动本地进程；
+  `fetchHealth` / `refreshHealth` 打远程地址；
 - 面板地址、复制的 API 地址、通知与关于页都指向远程 origin；日志页提示去网关那侧看；
-- 深浅色：Android 在 `onPageFinished` 与 `onConfigurationChanged`、iOS 在
-  `didFinish` 与 `traitCollectionDidChange` 各注入一次 Go 主题脚本；Python 面板
-  继续走原来的 `wb:system-theme`，两步都包在 try 里，互不干扰；
-- 设置：Android「端口设置」里的远程开关 / 地址 / 远程形态 /「本机形态」开关 /
-  自动更新源；iOS 菜单「远程网关接入…」与「本机网关形态…」。两端都能不下载 ZIP
-  直接选本机形态（Android 的 `Prefs.localKind` 与描述已导入项目的 `projectKind`
-  分开，未设置时回落到后者，保持「导入 Go ZIP 就切到 Go」的老行为）。地址支持
-  `127.0.0.1:7863`、局域网 IP 与 `https://host:port`，省略端口按形态补默认值。
+- 深浅色：Android 在 `onConfigurationChanged`、iOS 在 `traitCollectionDidChange`
+  把系统值用 `wb:system-theme` 事件派给面板；
+- 设置：Android「端口设置」里的远程开关 / 地址；iOS 菜单「远程网关接入…」。
+  地址支持 `127.0.0.1:8788`、局域网 IP 与 `https://host:port`，省略端口补 8788。
 
-`tests/_test_dual_gateway_compat.py`（41 例）用两种同构 ZIP 真调 `install()`，
-静态比对三端的路径、字段、主题键、状态码与「下载的可执行代码绝不进运行时」；
-还会真跑一遍 `prepare-go-bridge.py` 的源码变换，并单独执行 iOS 抽取脚本，
-确保 Go ZIP 得到的是可操作的诊断。
+**端口被占用时自动顺延**（默认关，Android「端口设置」/ iOS 菜单里的开关）：
+开启后启动前先探一次回环 TCP，预设端口被占（Termux 里另跑一份网关是典型）就
++1 递增、最多试 10 个，实际生效端口写回设置，状态栏、面板与「复制 API 地址」
+自然跟随。关闭时维持原行为：直接报「端口被占用」让人手动处理。Android 在
+`GatewayService.resolvePort()`，iOS 在 `Settings.effectivePort()`。
+
+`tests/_test_gateway_container.py` 用同构 ZIP 真调 `install()`（Python 包识别、
+Go 包拒绝），静态比对三端的路径、字段、端口与「容器不携带网关源码 / Go 产物」；
+还单独执行 iOS 抽取脚本，确保 Go ZIP 得到的是可操作的诊断。
 
 ## 两端各自适配了什么
 
@@ -178,8 +147,8 @@ exec 的文件路径。iOS 的 `prepare-go-bridge.py` 对上游 CLI 做五处**�
 | 控制入口 | 通知栏「停止」、App 内菜单（重启网关 / 端口设置 / 导入凭证 / 复制 API 地址 / 日志 / 关于 / 退出） | App 内菜单（含「后台保持」设置页） |
 | 面板 | 系统 WebView + 下拉刷新 | `WKWebView` |
 | 面板 JS 弹窗 | `WebChromeClient` 把 `alert/confirm/prompt` 接到原生对话框；`target=_blank` 在同一 WebView 打开 | `WKUIDelegate` 提供同样的三个回调 |
-| 深色模式 | 面板「跟随系统」按外壳传进来的 `?sysdark=` 取值（见下），原生外壳走 `values-night` 资源；Go 面板另注入 `wb2api.theme` | `WKWebView` 跟随系统外观；Go 面板在 `didFinish` / 深浅变化时注入 `wb2api.theme` |
-| 双形态接入 | `GatewayProfile.kt` + `GoGateway.kt` + 设置里的远程开关 / 地址 / 形态 / 更新源 | `GatewayProfile.swift` + `GoBridge.swift` + 菜单「远程网关接入…」「本机网关形态…」 |
+| 深色模式 | 面板「跟随系统」按外壳传进来的 `?sysdark=` 取值（见下），原生外壳走 `values-night` 资源 | `WKWebView` 跟随系统外观；系统值另用 `wb:system-theme` 事件派给面板 |
+| 接入契约 | `GatewayProfile.kt` + 设置里的远程开关 / 地址 | `GatewayProfile.swift` + 菜单「远程网关接入…」 |
 | 存储 | `filesDir/data`（accounts/usage/catalog/logs） | `Library/Application Support/data` |
 | 明文回环 | `network_security_config` 全局放行（远程 LAN 也能连） | ATS 例外 + `NSAllowsLocalNetworking` + 用户自填地址的明文例外 |
 | HTTPS 根证书 | Android 系统证书目录（`SSL_CERT_DIR`） | 随包 `certifi`（iOS 无系统 CA 路径） |
@@ -357,9 +326,8 @@ release 的保留规则在 `app/proguard-rules.pro`：Chaquopy 的 `com.chaquo.p
 APK 是**运行环境**，不是网关本身。装网关只有一件事——把一份仓库代码放进去——
 区别只在代码从哪来，所以菜单里就两个动作：**手动更新**（你选一个 ZIP）与
 **自动更新**（联网下仓库 main）。首次安装与日后升级走的是同两条路，不需要任何
-凭证，也没有「先导入项目」这种前置步骤。导入层同时认 Python 型与 Go 型两种 ZIP
-（见上文「双形态兼容」）；Python 型由 CPython 起网关，Go 型导入成功后回到本机
-运行模式，由 `GoGateway` 拉起随包签名的内置二进制。
+凭证，也没有「先导入项目」这种前置步骤。导入层只认 Python 型 ZIP；Go 源码包
+会被明确拒绝（见上文「容器契约与远程接入」），Python 型由沙盒里的 CPython 起网关。
 
 **一、自动更新（推荐）**
 
@@ -371,9 +339,7 @@ github.com），下载完走与手动更新完全相同的解压/切指针/重�
 「正在下载…42%（1.1 MB）」这类进度，失败时给出每个地址各自的失败原因。
 
 > 想换成自己的仓库或分支：改 `GatewayBridge.kt` 里的 `REPO` / `BRANCH` 两个常量即可，
-> `PROJECT_ZIP_URLS` 会自动跟着变；Go 源对应 `GatewayProfile.kt` 的 `GO_REPO` /
-> `GO_BRANCH`。设置里勾「自动更新下载 Go 仓库 ZIP」会把下载源切到另一个仓库，
-> 两个入口与后续解压流程都不变。
+> `PROJECT_ZIP_URLS` 会自动跟着变。两个入口与后续解压流程都不变。
 
 **二、手动更新**
 
@@ -381,11 +347,8 @@ github.com），下载完走与手动更新完全相同的解压/切指针/重�
 2. 打开 App → 点「手动更新（选择压缩包）」（或菜单里的「手动更新」）→ 在系统文件
    选择器里选中这个 ZIP；
 3. App 自动解压到 `filesDir/data/projects/<时间戳>/`，找到可识别的项目根
-   （Python 型看 `wb_proxy.py`，Go 型看 `go.mod` + `cmd/server`），读出版本号、
-   形态与默认端口后切换指针；
-4. Python 型随后启动网关，面板在 `http://127.0.0.1:8788/`；Go 型由安装包内置、
-   随包签名的 `libgateway.so` 在本机启动，面板在 `http://127.0.0.1:<当前端口>/panel/`。
-   注意 Go 的源码包只用来确认形态与版本，不能替换二进制，换 Go 版本要升级 App。
+   （看 `wb_proxy.py`），读出版本号与默认端口后切换指针；
+4. 随后启动网关，面板在 `http://127.0.0.1:8788/`。
 
 已经装过项目时再点同一个入口，效果就是**原地换一份代码**：解到新目录、成功才切指针，
 旧项目在新项目跑起来之前一直可用。这条路只看 ZIP 里有没有项目根，**不看来源、不要
@@ -399,23 +362,17 @@ github.com），下载完走与手动更新完全相同的解压/切指针/重�
 还没装过项目时点「自动更新」也算一次安装（只是文案换成「安装/更新」口径），
 不会被一句「还没有项目」挡回来。
 
-**四、两种形态与远程接入**
+**四、远程接入与端口顺延**
 
-导入层识别后把 `kind` 写进外壳配置；`GatewayProfile.kt` 据此给出面板路径、探活
-路径、健康字段与默认端口。Go 型本机运行时，`GatewayBridge.start/stop/status/logTail`
-会分流到 `GoGateway`（`ProcessBuilder` 起随包签名的 `libgateway.so`），Python 型
-仍走沙盒里的 CPython。「端口设置」里另有四个开关：连接外部网关（默认关）、
-地址、Go 形态、自动更新源。打开远程接入后：
+「端口设置」里有两个开关：连接外部网关（默认关）与端口顺延（默认关）。
+打开远程接入后：
 
 - 不启动前台服务与本地 CPython 网关，通知与日志明确说明网关在别处；
-- 探活打 `<地址>/health`（Python）或 `<地址>/healthz`（Go）；Go 的 503 也读
-  响应体里的 `total` / `healthy`，界面不会误判成「连不上」；
-- WebView 加载 `<地址>/` 或 `<地址>/panel/`，并在页面就绪与系统切深浅时注入
-  Go 面板的主题脚本；Python 面板仍走 `wb:system-theme`；
-- 「复制 API 地址」给出 `<地址>/v1`，而不是本机回环；关于页显示当前形态与地址。
+- 探活打 `<地址>/health`，只有 200 算可达；
+- WebView 加载 `<地址>/`；
+- 「复制 API 地址」给出 `<地址>/v1`，而不是本机回环；关于页显示当前接入方式与地址。
 
-关掉远程开关就回到当前形态的本机运行路径（Python 走 CPython、Go 走内置二进制），
-已导入的项目与账号数据都不变。
+关掉远程开关就回到本机运行路径，已导入的项目与账号数据都不变。
 
 更新期间覆盖层会显示实时进度（面板还开着，所以进度必须浮在上面）；更新完**不重启进程**，
 Python 侧把旧项目的模块摘掉后直接重新 `start()`，面板重新载一次即可看到新版本。
@@ -432,7 +389,7 @@ Python 侧把旧项目的模块摘掉后直接重新 `start()`，面板重新载
   「后台启动 Activity」（真机日志 `Abort background activity starts from 10237`），
   普通闹钟、精确闹钟、`setAlarmClock` 全试过，用户只会看到 App 在更新后凭空消失。
 - **ZIP 结构不挑**：GitHub 的 `仓库名-分支/` 外层会自动识别；也接受直接把仓库根目录
-  压成的包。两种形态都不认的包会在报错里同时列出 `wb_proxy.py` 与 `go.mod`，
+  压成的包。Python 网关项目不认的包会明确报错；Go 源码包会被单独指出并说明原因，
   不会留下半个项目。
 - **下载先验 ZIP 魔数**：镜像返回 200 不代表拿到的是包（限流页、警告页都是 200），
   所以看前两字节是不是 `PK`，不是就换下一个地址。
@@ -441,27 +398,24 @@ Python 侧把旧项目的模块摘掉后直接重新 `start()`，面板重新载
 
 **APK 里到底有什么（这条边界怎么守）**
 
-包内只有四样东西：Chaquopy 的 CPython 3.13 运行时、`assets/chaquopy/app.imy`
+包内只有三样东西：Chaquopy 的 CPython 3.13 运行时、`assets/chaquopy/app.imy`
 （里面唯一的 Python 模块是薄运行时 `wb_hub_env.pyc`）、原生外壳（Kotlin +
-布局/字符串/图标），以及**构建期编译、随包签名**的 `lib/<abi>/libgateway.so`。
-**没有** `wb_*.py`、`dashboard.html`、`assets/core/`，也不装任何 pip 包
-（`requirements-*.imy` 是空 ZIP）。换句话说：把网关源码全部删掉，这个 APK
-仍然能装、能启动，只是 Python 型会停在「尚未导入网关项目」，而 Go 型可以直接
-本机运行。`libgateway.so` 是产物里唯一的网关实现，它来自构建期而非导入 ZIP，
-因此不违反「APK 不带可热更新的网关源码」这条边界。
+布局/字符串/图标）。**没有** `wb_*.py`、`dashboard.html`、`assets/core/`，没有
+任何 pip 包（`requirements-*.imy` 是空 ZIP），也没有 Go 产物——曾短暂内置的
+`libgateway.so` 已随 Go 形态回退移除。换句话说：把网关源码全部删掉，这个 APK
+仍然能装、能启动，只是会停在「尚未导入网关项目」。网关实现完全来自导入的 ZIP。
 
 守这条边界的四道闸：
 
-1. `tests/_test_android_container_purity.py`（17 例）逐层钉住：源码树里不许出现网关
+1. `tests/_test_android_container_purity.py` 逐层钉住：源码树里不许出现网关
    文件、`src/main/python` 只许一个模块且不许 `.pyc`/`__pycache__` 残留、薄运行时不
    出现账号池/HTTP 处理器/模型白名单这类骨架、Kotlin 不读 `assets` 也不用 `file://`、
    `start()` 必须先有导入的项目；本机能找到 APK 时直接翻包（`app.imy` 只含
-   `wb_hub_env.pyc`、依赖清单为空、没有 `assets/core`）。
+   `wb_hub_env.pyc`、依赖清单为空、没有 `assets/core`、没有 `libgateway.so`）。
 2. `mobile-android` 工作流的 `Report artifacts` 逐个包检查：出现 `assets/core/`、
-   `.py`/`.pyc`、`dashboard.html` 或 pip 依赖，直接判红；每个包还必须有且只有
-   一个 ABI 的 `libgateway.so`，缺了就说明 Go 构建步骤被跳过。
-3. `.gitignore` 保留 `assets/core/` 规则当绊线，并排除构建期生成的
-   `jniLibs/` 与 `GoGateway/*.a|*.h`——真有人拷回来至少不会入库。
+   `.py`/`.pyc`、`dashboard.html`、pip 依赖或 `libgateway.so`，直接判红。
+3. `.gitignore` 保留 `assets/core/` 与 `jniLibs/` 规则当绊线——真有人拷回来
+   至少不会入库。
 4. 打包路径只有 `src/main/python` 一处：构建脚本不改写 `sourceSets` / `assets.srcDirs`，
    构建脚本只在算版本号时读一次 `mobile/VERSION`（只读不拷；前两段进版本名，
    `versionCode` 由它算，第三段换成构建日期）。
@@ -496,21 +450,13 @@ python mobile/android/tools/e2e_auto_import.py --keep # 结束后不停 App，�
 
 ```bash
 # 需要 macOS + Xcode；CI 用 macos-15 + Xcode 26（iOS 26 的持续后台任务要用新 SDK）
-# 还需要 Go 1.26.10（与上游 go.mod 一致）
 cd mobile/ios
 ./scripts/sync-core.sh                       # 拉取外部 Python 核心 + 合并标准库/二进制扩展 + 装 certifi
-bash ./scripts/build-go-gateway.sh           # 生成 GoGateway/libgateway.a + libgateway.h
 brew install xcodegen && xcodegen generate   # 生成 OneGateway.xcodeproj
 # Vendor/Python.xcframework 需先下载（CI 会自动做）：
 #   https://github.com/beeware/Python-Apple-support/releases/download/3.13-b18/Python-3.13-iOS-support.b18.tar.gz
 open OneGateway.xcodeproj                  # 选自己的 Team 后可真机运行
 ```
-
-> `build-go-gateway.sh` 必须在 `xcodegen generate` / `xcodebuild` **之前**跑：
-> `project.yml` 把 `GoGateway/` 加进 `HEADER_SEARCH_PATHS` / `LIBRARY_SEARCH_PATHS`
-> 并用 `-lgateway` 链接，桥接头 `#include "libgateway.h"`。缺了静态库会直接报
-> `library not found for -lgateway`。在 App 菜单「本机网关形态…」里切到 Go 即可
-> 运行；Go 网关在 App 进程内跑，日志输出到设备控制台。
 
 > 构建时还有一步 `install-python.sh`（`postBuildScripts` 里，自动执行），把
 > `lib-dynload` 的 `.so` 转成 `Frameworks/*.framework` 并签名。这一步不能省，
@@ -543,13 +489,12 @@ open OneGateway.xcodeproj                  # 选自己的 Team 后可真机运�
 | `.github/workflows/mobile-android.yml` | 改动 `mobile/**` | `one-gateway-android`（arm64 / x64 各一份 debug + release） |
 | `.github/workflows/mobile-ios.yml` | 改动 `mobile/**` | `one-gateway-ios`（未签名 IPA） |
 
-两条移动端流水线先做语法门禁（只编译容器桥接层 + 跑双形态兼容套件），并各自
-安装 Go 1.26.10、编译 Go 网关：Android 出两个 ABI 的 PIE ELF，iOS 出 c-archive
-静态库并校验 `StartGateway` / `StopGateway` 符号。Android 断言 **APK 里没有网关
-源码**（`*.py` / `dashboard.html` / `assets/core/`）且有 `libgateway.so`；iOS 断言
-`app/wb_proxy.py`、`app/dashboard.html`、`python/lib/python3.*/os.py` 与
-`Frameworks/Python.framework` 齐备，且静态库没被当资源打进包。前者守「容器不带
-网关源码」，后者守「外部核心确实注入了」。容器版本由 `mobile/VERSION` 统一提供。
+两条移动端流水线先做语法门禁（只编译容器桥接层 + 跑容器契约套件）。Android
+断言 **APK 里没有网关源码**（`*.py` / `dashboard.html` / `assets/core/`）、没有
+`libgateway.so` 且只有一套 ABI 原生库；iOS 断言 `app/wb_proxy.py`、
+`app/dashboard.html`、`python/lib/python3.*/os.py` 与 `Frameworks/Python.framework`
+齐备。前者守「容器不带网关源码 / Go 产物」，后者守「外部核心确实注入了」。
+容器版本由 `mobile/VERSION` 统一提供。
 
 ## 已知限制
 
@@ -566,10 +511,9 @@ open OneGateway.xcodeproj                  # 选自己的 Team 后可真机运�
 6. **Android 菜单里的「退出」**：会连网关和前台服务一起停掉再关 App（菜单不再单列
    「启动/停止」——只想停网关用通知栏的「停止」按钮，重新打开 App 再点覆盖层的
    「启动网关」即可）。
-7. **Go 网关不能热更新**：两个平台都禁止执行下载来的未签名代码，所以 Go 网关在
-   构建期编译、随包签名，版本与 App 绑定。两个更新入口对它只刷新形态/版本信息；
-   要换 Go 版本请升级 App。需要连电脑 / 服务器上的任意版本时，用「远程接入」。
-   本地 Python 型网关不受此限制，随时可以导入 ZIP 换版本。
+7. **端口被占**：默认 8788 被别的服务占用时网关会报「端口被占用」并停在那里；
+   可手动换端口，或在两端开关里打开「端口被占用时自动顺延」（+1 递增探测，
+   最多 10 个）。需要连电脑 / 服务器上的实例时，用「远程接入」。
 8. **旋转屏幕会重建界面（Android）**：清单只放行 `keyboardHidden|uiMode`，旋转时 Activity 重建。
    放行 `orientation|screenSize` 时 Activity 不重建，WebView 会留着上一次的页面缩放，
    横屏右侧约 12% 的按钮（关闭网关、修改密码、添加 API Key）被挤出屏幕；实测
