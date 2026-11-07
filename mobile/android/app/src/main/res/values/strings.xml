@@ -58,6 +58,8 @@
     <string name="menu_project_update">自动更新</string>
     <string name="menu_copy">复制 API 地址</string>
     <string name="menu_log">查看启动日志</string>
+    <!-- 跳系统应用详情页：自启动、省电策略、通知都在这儿手动开 -->
+    <string name="menu_keepalive">后台保活设置</string>
     <string name="menu_about">关于与项目信息</string>
 
     <!-- 网关项目（容器模式） -->

@@ -1,13 +1,16 @@
 package com.onegateway.host
 
+import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -65,6 +68,9 @@ class MainActivity : Activity() {
     private val io = Executors.newSingleThreadExecutor()
     private val ui = Handler(Looper.getMainLooper())
     private var loadedUrl: String? = null
+
+    /** 通知权限的请求码，只要不和别的请求码重号即可。 */
+    private val notificationRequest = 7101
 
     /** 上一次刷外壳颜色时的系统深浅；null 表示还没刷过。 */
     private var appliedDark: Boolean? = null
@@ -143,12 +149,32 @@ class MainActivity : Activity() {
         // 界面搭完之后统一刷一次外壳配色，深浅两档都由它决定。
         applyShellColors()
 
+        // 权限弹窗要在界面就绪之后再要，否则用户在白屏上看到系统对话框会懵。
+        requestNotificationPermissionIfNeeded()
+
         // 只对「已经导入过项目」的机器自动启动：首次安装仍要先看到导入引导；
         // 远程接入不需要本地进程，交给状态轮询即可。
         if (Prefs.autoStart(this) && !GatewayProfile.isRemote(this) &&
             GatewayBridge.projectRoot(this) != null) {
             GatewayService.send(this, GatewayService.ACTION_START)
         }
+    }
+
+    /**
+     * Android 13 起通知是运行时权限，清单里写了也默认是拒的。
+     *
+     * 不主动要的后果在真机上很具体：`startForeground()` 那张常驻通知会被静默丢弃，
+     * 服务名义上还是前台，MIUI 这类 ROM 却按普通后台应用处理，息屏几分钟后进程被
+     * 冻结——端口仍在监听、`/health` 却不再应答，用户看到的是「显示运行中但不工作」。
+     * 已授权、或系统版本还没引入该权限时什么都不做；用户拒过一次后系统自己就不再弹，
+     * 这里不需要再记状态。
+     */
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val granted = checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        if (granted) return
+        requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), notificationRequest)
     }
 
     /**
@@ -592,8 +618,9 @@ class MainActivity : Activity() {
         menu.menu.add(0, MENU_PROJECT_UPDATE, 3, getString(R.string.menu_project_update))
         menu.menu.add(0, MENU_COPY, 4, getString(R.string.menu_copy))
         menu.menu.add(0, MENU_LOG, 5, getString(R.string.menu_log))
-        menu.menu.add(0, MENU_ABOUT, 6, getString(R.string.menu_about))
-        menu.menu.add(0, MENU_EXIT, 7, getString(R.string.menu_exit))
+        menu.menu.add(0, MENU_KEEPALIVE, 6, getString(R.string.menu_keepalive))
+        menu.menu.add(0, MENU_ABOUT, 7, getString(R.string.menu_about))
+        menu.menu.add(0, MENU_EXIT, 8, getString(R.string.menu_exit))
         menu.setOnMenuItemClickListener { item: MenuItem ->
             when (item.itemId) {
                 MENU_RESTART -> {
@@ -605,12 +632,28 @@ class MainActivity : Activity() {
                 MENU_PROJECT_UPDATE -> startUpdate()
                 MENU_COPY -> copyApiBase()
                 MENU_LOG -> showLog()
+                MENU_KEEPALIVE -> openAppDetails()
                 MENU_ABOUT -> showAbout()
                 MENU_EXIT -> exitApp()
             }
             true
         }
         menu.show()
+    }
+
+    /**
+     * 跳到系统的应用详情页，让用户自己开「自启动 / 省电策略 / 通知」。
+     *
+     * 这三项各家 ROM 的文案和入口都不一样（MIUI 叫自启动与省电策略、ColorOS 叫
+     * 允许后台活动），App 没法代劳也没法可靠检测，只能把用户送到能点的地方。
+     * 真机上最常见的失联原因是省电策略把进程冻了：网关端口还在监听，请求却没人处理。
+     */
+    private fun openAppDetails() {
+        val intent = Intent(
+            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.fromParts("package", packageName, null),
+        )
+        startActivity(intent)
     }
 
     /**
@@ -949,5 +992,6 @@ class MainActivity : Activity() {
         private const val MENU_LOG = 8
         private const val MENU_ABOUT = 9
         private const val MENU_EXIT = 10
+        private const val MENU_KEEPALIVE = 12
     }
 }
