@@ -127,8 +127,9 @@ class MainActivity : Activity() {
                 // 立刻再探一次外部网关。
                 loadedUrl = null
                 ui.postDelayed(poller, 200)
-            } else if (GatewayBridge.projectRoot(this) == null) {
-                // 没有项目时，这个按钮的语义是「手动更新」而不是「启动」。
+            } else if (!hasLocalRuntime()) {
+                // 没有项目、也不是随包内置 Go 形态时，这个按钮的语义是「手动更新」
+                // 而不是「启动」。Go 本机模式不需要 ZIP，按「启动网关」处理。
                 launchProjectImport()
             } else {
                 overlayText.text = getString(R.string.overlay_starting)
@@ -143,13 +144,24 @@ class MainActivity : Activity() {
         // 界面搭完之后统一刷一次外壳配色，深浅两档都由它决定。
         applyShellColors()
 
-        // 只对「已经导入过项目且是本地托管」的机器自动启动：首次安装应当先看到
-        // 导入引导；远程接入根本不需要本地进程，交给状态轮询即可。
+        // 只对「已经导入过项目、或选了随包内置的 Go 形态」的机器自动启动：
+        // 首次安装仍要先看到导入引导；远程接入不需要本地进程，交给状态轮询即可。
         if (Prefs.autoStart(this) && !GatewayProfile.isRemote(this) &&
-            GatewayBridge.projectRoot(this) != null) {
+            (GatewayBridge.projectRoot(this) != null || GatewayProfile.isLocalGo(this))) {
             GatewayService.send(this, GatewayService.ACTION_START)
         }
     }
+
+    /**
+     * 本机是否已经有一个「不需要再导入 ZIP」的运行时。
+     *
+     * 远程接入连的是别的设备；Go 本机形态跑的是随包签名的二进制；两者都可以
+     * 在没有导入项目的情况下直接显示面板。只有「Python 型且没导入 ZIP」才是
+     * 真正的空壳，需要首装引导覆盖层。
+     */
+    private fun hasLocalRuntime(): Boolean =
+        GatewayProfile.isRemote(this) || GatewayProfile.isLocalGo(this) ||
+            GatewayBridge.projectRoot(this) != null
 
     /**
      * 把外壳（状态栏、顶栏、覆盖层、按钮、WebView 首帧底色）刷成当前系统的深浅。
@@ -479,8 +491,9 @@ class MainActivity : Activity() {
     /** 自动导入/更新失败后的收尾：恢复按钮与引导文案，让用户能直接再试一次。 */
     private fun finishAutoImport(message: String?) {
         autoImporting = false
-        // 远程接入本来就不导入项目，失败时同样该把覆盖层收起、回到面板重试。
-        val hasProject = GatewayBridge.projectRoot(this) != null || GatewayProfile.isRemote(this)
+        // 远程接入与随包内置的 Go 形态本来就不导入项目，失败时同样该把覆盖层
+        // 收起、回到面板重试。
+        val hasProject = hasLocalRuntime()
         overlayAction.isEnabled = true
         overlayAuto.isEnabled = true
         // 自动导入按钮只服务首装：已经装过项目时它不该再占位置（更新走菜单）。
@@ -907,10 +920,10 @@ class MainActivity : Activity() {
         // 的瞬间把面板载进来」三种错觉。等收尾（finishAutoImport）之后再交给轮询。
         if (autoImporting) return
 
-        // 没导入项目时，这个 App 只是一个空壳：不提示「已停止」，而是直接把
-        // 「导入压缩包」摆在最显眼的位置——这是首次安装后唯一该做的事。
-        // 远程接入不需要导入任何项目（网关在别处跑），不适用这段引导。
-        if (GatewayBridge.projectRoot(this) == null && !GatewayProfile.isRemote(this)) {
+        // 真正空壳（Python 型且没导入 ZIP）才提示「导入压缩包」。远程接入的
+        // 网关在别处跑，Go 本机形态跑随包签名的二进制，两者都不需要导入 ZIP，
+        // 不该被这段引导挡住面板。
+        if (!hasLocalRuntime()) {
             statusDot.setBackgroundResource(R.drawable.dot_idle)
             statusText.text = getString(R.string.status_no_project)
             overlay.visibility = View.VISIBLE

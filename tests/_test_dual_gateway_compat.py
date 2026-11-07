@@ -393,6 +393,17 @@ class LocalGoRuntimeTests(unittest.TestCase):
                        "GoGateway.logTail"):
             self.assertIn(action, self.bridge)
 
+    def test_local_go_without_an_imported_zip_is_not_treated_as_an_empty_shell(self):
+        # 真机实测：切到本机 Go 后网关确实起来了，但界面还挂在「尚未导入网关项目」
+        # 覆盖层上。四种入口都要认「随包内置二进制也是有效运行时」。
+        main = read(os.path.join(JAVA, "MainActivity.kt"))
+        for token in ("private fun hasLocalRuntime(): Boolean",
+                      "GatewayProfile.isLocalGo(this)",
+                      "if (!hasLocalRuntime()) {",
+                      "val hasProject = hasLocalRuntime()",
+                      "else if (!hasLocalRuntime())"):
+            self.assertIn(token, main)
+
 
 class IosSyncCoreTests(unittest.TestCase):
     """iOS 构建脚本里的真实抽取逻辑：Python 核心照旧，Go 包给明确诊断。"""
