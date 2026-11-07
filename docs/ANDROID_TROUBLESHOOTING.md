@@ -167,9 +167,17 @@ adb shell pm grant com.onegateway.host android.permission.POST_NOTIFICATIONS
 cd /c/Users/Admin/Desktop/Projects/workbuddy2api-hub-ios
 git log --oneline -1 && git rev-list --left-right --count origin/main...HEAD   # 应为 0  0
 
+# 判断「APK 是不是最新代码」要看这个，不是看 HEAD：
+git log -1 --format='%h %s' -- mobile/android/
+
 curl -s "https://api.github.com/repos/CRFH67I3/one-gateway/actions/runs?per_page=3" \
   | python -c "import sys,json;[print(r['name'],r['head_sha'][:7],r['conclusion'],r['created_at']) for r in json.load(sys.stdin)['workflow_runs']]"
 ```
+
+> **别被 HEAD 骗了**：`mobile-android.yml` / `mobile-ios.yml` 的 `push.paths` 只含
+> `mobile/**` 和 workflow 文件本身，所以**只改 docs 的提交不会重建 APK**。
+> 这种时候 HEAD 比 APK 新是正常的；正确判据是 `git log -1 -- mobile/android/`
+> 的 sha 与 CI artifact 对应的 sha 一致，再叠加下面的 md5 / 符号校验。
 
 三条流水线（mobile-android / mobile-ios / tests）必须都在**同一个 sha**上 `success`。
 
