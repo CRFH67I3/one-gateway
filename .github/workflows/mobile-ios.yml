@@ -1,12 +1,14 @@
 name: mobile-ios
 
-# iOS shell for the gateway.
+# iOS container build.
 #
 # iOS has no system Python, so the interpreter is linked into the app: the
 # XCFramework comes from BeeWare's python-app-support release and ships as
 # Python.framework inside the bundle. The standard library is laid out by
 # scripts/sync-core.sh under Resources/python/lib/python3.x (PYTHONHOME) and the
-# app code under Resources/app (PYTHONPATH), per CPython's iOS guide.
+# app code under Resources/app (PYTHONPATH), per CPython's iOS guide. The
+# gateway core in Resources/app is fetched from an external project ZIP by
+# sync-core.sh - this repository ships no gateway source of its own.
 #
 # scripts/install-python.sh then runs as a post-build step and converts the 68
 # binary extension modules in lib-dynload (_hashlib, _sha1, _socket, _ssl, ...)
@@ -22,18 +24,14 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    # 发版 tag 要重新出包：Release 里放的必须是「这一版核心打进 IPA」的产物。
+    # 发版 tag 要重新出包，不能复用 main 上一次构建留下的产物。
     # tag 推送不参与 paths 过滤，所以即使这个 tag 只动了文档，也会照常构建。
     tags: ["v*"]
     paths:
-      - "wb_*.py"
-      - "dashboard.html"
       - "mobile/**"
       - ".github/workflows/mobile-ios.yml"
   pull_request:
     paths:
-      - "wb_*.py"
-      - "dashboard.html"
       - "mobile/**"
       - ".github/workflows/mobile-ios.yml"
 
@@ -74,8 +72,8 @@ jobs:
       - name: Resolve version from source
         id: version
         run: |
-          VERSION=$(grep -oE 'server_version = "wb-proxy/[0-9.]+"' wb_proxy.py \
-            | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
+          # 容器版本只跟 mobile/VERSION 走，与导入的网关版本无关。
+          VERSION=$(tr -d '[:space:]' < mobile/VERSION)
           VERSION=${VERSION:-0.0.0}
           echo "value=${VERSION}" >> "$GITHUB_OUTPUT"
           # CFBundleVersion 取 主*10000 + 次*100 + 修，与 Android 的 versionCode 同源：
@@ -83,9 +81,9 @@ jobs:
           BUILD=$(echo "$VERSION" | awk -F. '{printf "%d", $1*10000 + $2*100 + $3}')
           echo "build=${BUILD:-1}" >> "$GITHUB_OUTPUT"
 
-      - name: Syntax gate (gateway core + bridge)
+      - name: Syntax gate (container bridge)
         run: |
-          python3 -m compileall -q wb_proxy.py wb_accounts.py wb_settings.py \
+          python3 -m compileall -q \
             mobile/shared mobile/ios/ProxyGatewayRuntime/PythonBridge
 
       # ~200MB download; cache it so repeat builds skip GitHub Releases.
@@ -106,7 +104,7 @@ jobs:
           tar -xzf /tmp/support.tar.gz -C mobile/ios/Vendor
           test -d mobile/ios/Vendor/Python.xcframework
 
-      - name: Sync gateway core
+      - name: Fetch external gateway core
         run: |
           chmod +x mobile/ios/scripts/sync-core.sh mobile/ios/scripts/install-python.sh
           mobile/ios/scripts/sync-core.sh

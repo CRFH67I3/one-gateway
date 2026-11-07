@@ -179,10 +179,10 @@ class GradleTests(unittest.TestCase):
                              "构建脚本不该改写源码/资源目录（会绕开容器边界）")
 
     def test_repo_root_is_only_read_for_the_version(self):
-        # 允许读 wb_proxy.py 的 server_version（版本号单一来源），
-        # 但只允许这一处，且必须是读文件而不是拷文件。
+        # 只允许读 mobile/VERSION（容器版本单一来源），且必须是读文件
+        # 而不是把外部网关源码拷进 APK。
         self.assertEqual(1, self.gradle.count("File(repoRoot,"))
-        self.assertIn('File(repoRoot, "wb_proxy.py")', self.gradle)
+        self.assertIn('File(repoRoot, "mobile/VERSION")', self.gradle)
 
     def test_no_pip_requirements(self):
         # 网关是纯标准库实现；一旦开始装 pip 包，就意味着有依赖被搬进 APK。

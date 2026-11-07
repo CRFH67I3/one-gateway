@@ -33,7 +33,6 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ANDROID = os.path.join(ROOT, "mobile", "android")
 RES = os.path.join(ANDROID, "app", "src", "main", "res")
 JAVA = os.path.join(ANDROID, "app", "src", "main", "java", "com", "proxygateway", "runtime")
-DASHBOARD = os.path.join(ROOT, "dashboard.html")
 
 
 def read(path):
@@ -57,21 +56,20 @@ def style_body(xml, name):
     return match.group(1) if match else None
 
 
-def panel_tokens():
-    """面板新界面（`html[data-ui="next"]`）两套主题的 CSS 变量。
+# 面板属于外部网关项目，本仓库不再含 dashboard.html。外壳要对齐的那一套
+# `html[data-ui="next"]` token 在这里写成显式契约：外部面板换肤时，同步改这里
+# 和 res/values{,-night}/colors.xml，别让外壳与面板呈现两套配色。
+PANEL_TOKENS_LIGHT = """
+--bg: #f4f6f9; --panel: #ffffff; --fg: #101828; --dim: #667085; --accent: #4f46e5;
+"""
+PANEL_TOKENS_DARK = """
+--bg: #0f1115; --panel: #171a21; --fg: #f2f4f7; --dim: #98a2b3; --accent: #818cf8;
+"""
 
-    手机打开面板渲染的是这一套；`:root` 那套只在旧界面下生效，拿它当基准会让外壳
-    跟真机上看到的颜色对不上（暖米 + 陶土 vs 冷灰 + 靛蓝）。两块的结尾都是单独
-    一行 `}`，块内不再嵌套花括号，所以非贪婪到第一个 `\\n}` 即可。
-    """
-    html = read(DASHBOARD)
-    light = re.search(r'html\[data-ui="next"\]\{(.*?)\n\}', html, re.S)
-    dark = re.search(r'html\[data-ui="next"\]\[data-theme="dark"\]\{(.*?)\n\}', html, re.S)
-    if not light or not dark:
-        raise AssertionError(
-            "面板里找不到 html[data-ui=\"next\"] 的变量块——新界面改名了？"
-            "外壳配色是照着它对齐的，改名后要一起改")
-    return light.group(1), dark.group(1)
+
+def panel_tokens():
+    """浅色/深色两份面板 token 契约（不再从仓库内的面板文件解析）。"""
+    return PANEL_TOKENS_LIGHT, PANEL_TOKENS_DARK
 
 
 def token(block, name):
@@ -147,7 +145,7 @@ class ButtonsShareOneComponent(unittest.TestCase):
 
 
 class ShellPaletteMatchesPanel(unittest.TestCase):
-    """外壳的配色 = 面板的 token，换肤时两边一起改。"""
+    """外壳的配色 = 外部面板的 token 契约，换肤时两边一起改。"""
 
     MAPPING = {
         "page_bg": "bg",

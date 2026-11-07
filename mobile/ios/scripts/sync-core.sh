@@ -1,8 +1,9 @@
 #!/bin/sh
-# 把仓库根目录的网关核心复制进 iOS 包内资源目录，并铺好 CPython 的标准库。
+# 拉取外部网关项目的核心放进 iOS 包内资源目录，并铺好 CPython 的标准库。
 #
-# 单一来源原则：仓库根目录的 wb_*.py 与 dashboard.html 是唯一真身，移动端只复制
-# 文件、不复制代码，所以 PC 版升级后移动端自动跟随（CI 每次构建都会重跑本脚本）。
+# 本仓库只是容器，不带网关源码。构建时下载一份网关项目 ZIP，按与 Android
+# 「导入项目 ZIP」相同的口径抽出 wb_*.py 与 dashboard.html；换源用
+# GATEWAY_CORE_ZIP_URL，离线构建用 GATEWAY_CORE_ZIP 指一份本地 ZIP。
 #
 # 包内布局严格照 CPython 官方文档《Using Python on iOS》第 7 步 `install_python`
 # 的产物来（BeeWare python-app-support 的 USAGE.md 给的初始化代码也一致）：
@@ -30,12 +31,50 @@ mkdir -p "$DEST_APP" "$DEST_PY"
 rm -f "$DEST_PY"/wb_*.py "$DEST_PY"/dashboard.html
 rm -rf "$DEST_PY"/certifi "$DEST_PY"/certifi-*.dist-info
 
-cp "$ROOT"/wb_*.py "$DEST_APP"/
-cp "$ROOT/dashboard.html" "$DEST_APP"/
+# 网关核心来自外部 ZIP：先清掉上次注入的副本，再按文件名抽取项目根那一层。
+CORE_ZIP_URL=${GATEWAY_CORE_ZIP_URL:-https://github.com/ardeyouxipianyi/workbuddy2api-hub/archive/refs/heads/main.zip}
+
+if [ -n "${GATEWAY_CORE_ZIP:-}" ]; then
+    CORE_ZIP=$GATEWAY_CORE_ZIP
+else
+    command -v curl >/dev/null 2>&1 || { echo "error: 需要 curl 下载网关项目 ZIP" >&2; exit 1; }
+    CORE_ZIP=$(mktemp /tmp/gateway-core.XXXXXX.zip)
+    curl -fsSL --retry 3 --connect-timeout 20 --max-time 180 \
+        -o "$CORE_ZIP" "$CORE_ZIP_URL" \
+        || { echo "error: 下载网关项目失败：$CORE_ZIP_URL" >&2; exit 1; }
+fi
+
+find "$DEST_APP" -maxdepth 1 -name 'wb_*.py' -delete
+rm -f "$DEST_APP/dashboard.html"
+
+python3 - "$CORE_ZIP" "$DEST_APP" <<'PY'
+import os, sys, zipfile
+zip_path, dest = sys.argv[1], sys.argv[2]
+picked = []
+with zipfile.ZipFile(zip_path) as zf:
+    for name in zf.namelist():
+        base = os.path.basename(name)
+        wanted = (base.startswith("wb_") and base.endswith(".py")) or base == "dashboard.html"
+        # GitHub archive 会多套一层 <repo>-<branch>/；更深的是项目内子目录，不要。
+        if not wanted or name.count("/") > 1 or not base:
+            continue
+        picked.append((name, base))
+    if not any(base == "wb_proxy.py" for _, base in picked):
+        sys.exit("error: ZIP 里找不到 wb_proxy.py（不是网关项目 ZIP？）")
+    for name, base in picked:
+        with zf.open(name) as src, open(os.path.join(dest, base), "wb") as out:
+            out.write(src.read())
+    print("extracted %d gateway core files" % len(picked))
+PY
+
+[ -n "${GATEWAY_CORE_ZIP:-}" ] || rm -f "$CORE_ZIP"
+
+# 这两份是容器自己的桥接层，不属于网关，直接随包携带。
 cp "$ROOT/mobile/shared/wb_mobile_runtime.py" "$DEST_APP"/
 cp "$ROOT/mobile/ios/ProxyGatewayRuntime/PythonBridge/wb_hub_ios.py" "$DEST_APP"/
 
-# 交付前自检：核心与面板缺一不可，缺了直接让构建失败，别等运行时才报错。
+# 交付前自检：外部核心与容器桥接层缺一不可，缺了直接让构建失败，
+# 别等 App 在手机上启动才暴露。
 for required in wb_proxy.py dashboard.html wb_mobile_runtime.py wb_hub_ios.py; do
     if [ ! -f "$DEST_APP/$required" ]; then
         echo "error: $required missing in $DEST_APP" >&2

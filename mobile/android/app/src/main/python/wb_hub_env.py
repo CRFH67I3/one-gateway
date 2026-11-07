@@ -2,13 +2,13 @@
 
 和旧版的区别只有「core 从哪来」这一处：
 
-    旧：APK assets/core（构建时把仓库根目录的 wb_*.py + dashboard.html 打进去）
+    旧：APK assets/core（构建时把网关源码打进去）
     新：用户从 GitHub 下载仓库 ZIP → 在 App 里导入 → 解压到沙盒 → 以解压出的
         项目根目录作为 core
 
 因此升级网关不再需要重装 APK：重新导入一份新 ZIP 即可。启动流程（CLI 参数、
-bootstrap、serve_forever）仍与 PC 版 `wb_proxy.main()` 逐步对齐，业务逻辑一行
-都不在这里——这里只做「解压、找项目根、把 PC 版跑起来」。
+bootstrap、serve_forever）仍与导入项目的 `wb_proxy.main()` 逐步对齐，业务逻辑一行
+都不在这里——这里只做「解压、找项目根、把导入的网关跑起来」。
 
 数据目录（accounts/ usage/ catalog/ logs/）始终落在 App 沙盒里，与项目目录
 分开：换一份 ZIP 覆盖导入，已登录的账号不会丢。
@@ -25,7 +25,7 @@ import time
 import traceback
 import zipfile
 
-#: 项目根的判定标志：仓库根目录一定有的入口文件。
+#: 项目根的判定标志：外部网关项目根目录一定有的入口文件。
 MARKER = "wb_proxy.py"
 PANEL = "dashboard.html"
 LOG_NAME = "gateway.log"
@@ -122,7 +122,7 @@ def _find_root(base):
 
 
 def project_info(root):
-    """读项目自身的版本号（与 PC 版 `server_version` 同一处），顺带自检面板。"""
+    """读导入项目自身的版本号，顺带自检面板。"""
     root = os.path.abspath(root or "")
     entry = os.path.join(root, MARKER)
     if not os.path.isfile(entry):
@@ -475,7 +475,7 @@ def _listen_error(exc, port):
     """把 bind 失败翻译成用户能照着做的一句话。
 
     手机上最常见的不是权限问题，而是**同一个端口上已经有一份网关**：比如用户
-    在 Termux 里也跑着 PC 版脚本，或者上一次的进程没退干净。这时网关自己起不来，
+    在 Termux 里也跑着同一份网关脚本，或者上一次的进程没退干净。这时网关自己起不来，
     但 `127.0.0.1:<port>` 仍然是通的（通的是别人的进程），界面若不看这里的
     error，就会显示「运行中」并把别人的面板当成自己的——所以这条错误必须说清楚。
     """

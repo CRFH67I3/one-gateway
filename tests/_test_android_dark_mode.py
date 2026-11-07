@@ -12,11 +12,12 @@
      Activity——重建会连 WebView 一起销毁，而面板的登录态活在页面内存里（不是
      cookie），用户只是把手机调成深色，回来就得重新输密码（真机实测掉了两次）。
      换色之后再把新值用 `wb:system-theme` 派给页面，页面不重载、会话不丢。
-  2. 页面（dashboard.html）：首帧脚本认这个参数并**缓存**（面板里有几处
-     `history.replaceState` 会重写 URL，每次现读会把参数弄丢），媒体查询降级为兜底；
-     另外认 `wb:system-theme` 事件，供原生运行中推送。
-  3. 原生外壳那一圈（values-night 资源）：状态栏、顶栏、WebView 底色一起沉下去，
+  2. 原生外壳那一圈（values-night 资源）：状态栏、顶栏、WebView 底色一起沉下去，
      否则深色面板顶上会顶一条白。
+
+第 2 层原本还有「页面脚本认 sysdark / wb:system-theme」的断言，但面板现在属于
+外部网关项目（本仓库只含容器），仓库里没有可校对的文件了。容器侧只保证把值送到
+页面（`?sysdark=` 与事件派发），页面怎么消费由外部项目自己钉。
 
 Run: python tests/_test_android_dark_mode.py
 """
@@ -28,7 +29,6 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ANDROID = os.path.join(ROOT, "mobile", "android")
 JAVA = os.path.join(ANDROID, "app", "src", "main", "java", "com", "proxygateway", "runtime")
 RES = os.path.join(ANDROID, "app", "src", "main", "res")
-DASHBOARD = os.path.join(ROOT, "dashboard.html")
 
 
 def read(path):
@@ -90,34 +90,8 @@ class ShellPassesSystemDark(unittest.TestCase):
                          "要同步 loadedUrl，否则轮询会立刻 loadUrl，等于白换肤")
 
 
-class PanelHonoursNativeValue(unittest.TestCase):
-    """第 2 层：页面认外壳给的值，媒体查询只是兜底。"""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.html = read(DASHBOARD)
-
-    def test_reads_sysdark_from_url(self):
-        self.assertIn("get('sysdark')", self.html, "页面脚本要读 ?sysdark=")
-        self.assertRegex(self.html, r"var NATIVE_DARK = \(function\(\)",
-                         "参数要在脚本开头读一次并缓存：replaceState 会重写 URL")
-
-    def test_resolve_prefers_native(self):
-        self.assertIn("function systemPrefersDark()", self.html)
-        self.assertIn("return systemPrefersDark() ? 'dark' : 'light';", self.html,
-                      "resolve('system') 要经过 systemPrefersDark()，不能直接读 mq.matches")
-
-    def test_media_query_still_fallback(self):
-        self.assertIn("return !!(mq && mq.matches);", self.html,
-                      "浏览器/桌面面板没有 sysdark 参数，必须继续回落到媒体查询")
-
-    def test_live_event(self):
-        self.assertIn("wb:system-theme", self.html,
-                      "原生运行中切换系统深浅时用 wb:system-theme 推送，页面要接")
-
-
 class NativeShellFollowsSystem(unittest.TestCase):
-    """第 3 层：原生那一圈（状态栏 / 顶栏 / 导航栏）也跟着沉下去。"""
+    """第 2 层：原生那一圈（状态栏 / 顶栏 / 导航栏）也跟着沉下去。"""
 
     @classmethod
     def setUpClass(cls):

@@ -8,24 +8,20 @@ plugins {
     id("com.chaquo.python")
 }
 
-// 版本号只有一个来源：仓库根目录 wb_proxy.py 的 server_version。
-// PC 版发版时改那一处，APK 的 versionName/versionCode 自动跟随，不会漂移。
+// 容器版本号只有一个来源：mobile/VERSION。本仓库不含网关，版本不再跟外部
+// 网关项目的 server_version 走；Android 与 iOS 都读这一份，不会漂移。
 val repoRoot: File = rootProject.projectDir.parentFile.parentFile
-val serverVersion: String = run {
-    val source = File(repoRoot, "wb_proxy.py")
-    val pattern = Regex("""server_version\s*=\s*"wb-proxy/([0-9]+(?:\.[0-9]+)*)"""")
-    pattern.find(source.readText())?.groupValues?.get(1) ?: "0.0.0"
-}
+val serverVersion: String = File(repoRoot, "mobile/VERSION").readText().trim()
 val versionCodeValue: Int = run {
     val parts = serverVersion.split(".").map { it.toIntOrNull() ?: 0 }
     val padded = parts + List(3 - parts.size.coerceAtMost(3)) { 0 }
     padded[0] * 10000 + padded[1] * 100 + padded[2]
 }
 
-// 版本名的最后一段用构建日期（8 位 yyyyMMdd），前两段仍跟 wb_proxy.py。
+// 版本名的最后一段用构建日期（8 位 yyyyMMdd），前两段取 mobile/VERSION。
 // 好处是一眼能看出这个包是哪天出的，跨天自然递增；坏处是无法手写版本名，
 // 但这本来就是构建产物的标识，不该手工维护。
-// versionCode 不跟着日期走：它仍由 server_version 算，覆盖安装不吃亏，
+// versionCode 不跟着日期走：它仍由 mobile/VERSION 算，覆盖安装不吃亏，
 // 也不会因为同一天多次构建而产生歧义。
 val buildDate: String = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
 val versionNameValue: String = run {
@@ -176,8 +172,8 @@ chaquopy {
 // 不再打包网关源码（wb_*.py / dashboard.html）。网关本体由用户在 App 内导入
 // 仓库 ZIP 提供——升级网关不需要重装 APK，App 也因此不随网关版本变化而膨胀。
 //
-// 版本号仍只有一个来源：仓库根目录 wb_proxy.py 的 server_version，方便面板和
-// App 对上号（用户导入的 ZIP 版本可能比 App 新，这是预期行为）。
+// 容器版本只跟 mobile/VERSION 走，与用户导入的网关版本彼此独立：
+// 网关升级不需要重装 App，App 升级也不该改变已经导入的网关。
 
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")

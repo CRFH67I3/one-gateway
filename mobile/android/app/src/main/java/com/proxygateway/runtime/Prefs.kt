@@ -4,7 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 
 /**
- * 外壳配置。与 PC 版的 settings.json 分开存：
+ * 外壳配置。与导入网关项目的 settings.json 分开存：
  * 这里只有「移动端怎么跑」的开关（端口、是否监听局域网、是否随 App 启动），
  * 账号、API Key、面板密码等业务配置仍然由网关自己写在 accounts/ 里，
  * 这样换外壳、换设备都不影响已导入的账号。

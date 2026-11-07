@@ -1,13 +1,13 @@
-"""移动端（iOS / Android）运行时外壳：原样复用 PC 版网关的全部逻辑。
+"""移动端（iOS / Android）运行时外壳：原样运行导入的网关项目。
 
 设计边界（重要）：
 * 本文件**不含任何网关业务逻辑**——账号池、调度、计费、面板、上游转发全部由
-  同目录的 `wb_proxy.py` 及其模块提供。这里只负责「让 PC 版代码能在 App 沙盒
-  里跑起来」，所以 PC 版每次升级，移动端跟着源码一起升级，行为天然一致。
+  同目录的 `wb_proxy.py` 及其模块提供——那份代码来自用户导入的外部项目 ZIP，
+  不在本仓库里。这里只负责「让网关能在 App 沙盒里跑起来」。
 * 平台差异（前台服务、后台挂起、通知、WebView）由各平台原生外壳处理，这里只
   暴露 start / stop / status / import_credential / log_tail 五个动作。
 
-启动流程与 `wb_proxy.main()` 逐步对齐（顺序不能改）：
+启动流程与导入项目的 `wb_proxy.main()` 逐步对齐（顺序不能改）：
     _parse_cli_args → _apply_cli_overrides → _bootstrap_runtime
     → _report_first_run → _log_startup_summary → GatewayServer.serve_forever()
 
@@ -50,7 +50,7 @@ _WB = None
 # 目录与运行环境
 # --------------------------------------------------------------------------
 def _core_files(src_dir):
-    """列出核心文件名：wb_*.py + dashboard.html（与 PC 版打包口径一致）。"""
+    """列出核心文件名：wb_*.py + dashboard.html（与导入 ZIP 的口径一致）。"""
     names = []
     try:
         entries = sorted(os.listdir(src_dir))

@@ -1,48 +1,19 @@
-# 核心机密数据（千万不能上传到公共仓库）
-accounts/*.json
-accounts/agent-backups/
-!accounts/README.txt
+# 本仓库只是容器：账号、用量、面板等运行时数据全部由「导入的网关项目」
+# 写在 App 沙盒里，仓库不产生也不跟踪任何业务数据。
 
-# 运行时日志和用量统计
-usage/*.jsonl
-usage/*.json
-usage/*.sqlite3
-usage/*.sqlite3-journal
-usage/*.sqlite3-wal
-usage/*.sqlite3-shm
-!usage/README.txt
-usage/*.bak*
-
-# 运行时模型目录落盘缓存（上游 /v3/config 成功响应的副本，重启后作兜底；删除安全）
-catalog/*.json
-catalog/*.tmp
-!catalog/README.txt
-
-# 媒体产物（生图的临时文件、生视频的 mp4 与任务表；删除安全，只是丢了历史）
-media/out/
-media/*.json
-media/*.json.tmp
-# 生视频产物（mp4 是运行时资产，不进仓库；tasks.json 已单独忽略）
-media/*.mp4
-
-# 运行时日志文件
+# 本机跑过的网关实例可能留下运行时数据；它们属于导入的网关，不属于容器仓库。
+# 保留在磁盘上（可能是有用的历史），只是不入库。
+accounts/
+usage/
+catalog/
 logs/
+media/
 
-# 测试套件输出（tests/run_all.py --logs 落盘的每个套件的完整输出）
-suite-logs/
-
-# 便携版内置运行时（仓库只保存纯源码，绿色包通过 Release 发布）
-# 锚定到仓库根目录：不加前导 / 会连 iOS 的 Resources/python（包内资源目录）一起忽略。
-/python/
+# 压缩包（导入包、iOS 构建时下载的外部网关核心 ZIP）
 *.zip
 
-# 发布打包产物（release 工作流与 wrt/ 脚本的输出，只该出现在 Release 资产里）
-dist/
-.sdk-cache/
-wrt/ipk/
-wrt/apk/
-# build-apk.sh 把 wb_*.py 暂存进包目录再拷给 SDK，这是构建中间产物
-wrt/openwrt/proxygateway/files/usr/lib/
+# 测试套件输出（tests/run_all.py --logs 落盘的每个套件完整输出）
+suite-logs/
 
 # 项目隔离测试环境
 .venv/
@@ -64,13 +35,13 @@ desktop.ini
 .codebuddy/
 .workbuddy/
 
-
 # ---- 移动端（iOS / Android）----
-# Android 已是「容器模式」：APK 只带 CPython 运行时，网关源码由用户导入 ZIP 提供，
-# assets/core/ 不再生成。这条规则留着当绊线——谁要是又把核心拷回来，至少不会入库
+# Android 是纯容器：APK 只带 CPython 运行时 + 薄运行时，网关源码由导入 ZIP 提供。
+# 这条规则留着当绊线：谁要是又把核心拷回来，至少不会入库
 # （tests/_test_android_container_purity.py 会直接判红）。
 mobile/android/app/src/main/assets/core/
-# iOS 包内资源：app/ 是核心代码，python/ 是 CPython 标准库，均由 sync-core.sh 生成。
+# iOS 包内资源：app/ 是构建时从外部 ZIP 注入的网关核心 + 容器桥接层，
+# python/ 是 CPython 标准库，均由 scripts/sync-core.sh 生成，不入库。
 mobile/ios/ProxyGatewayRuntime/Resources/app/*
 !mobile/ios/ProxyGatewayRuntime/Resources/app/.gitkeep
 mobile/ios/ProxyGatewayRuntime/Resources/python/*

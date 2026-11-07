@@ -21,8 +21,14 @@ object GatewayBridge {
     private const val MARKER = "wb_proxy.py"
     private const val CACHE_ZIP = "imported-project.zip"
 
-    /** 自动更新拉取的仓库：网关上游，`main` 分支就是「最新网关」。 */
-    private const val REPO = "CRFH67I3/proxy-gateway-runtime"
+    /**
+     * 自动导入拉取的「外部网关项目」仓库。
+     *
+     * 本仓库只有容器外壳，不含任何网关源码；`main` 分支的 ZIP 才是要装进沙盒
+     * 的那份网关。换网关源只改这一行；不想联网就用首装界面的「手动更新」
+     * 选一份本地 ZIP，两份入口走的是同一个 install 流程。
+     */
+    private const val REPO = "ardeyouxipianyi/workbuddy2api-hub"
     private const val BRANCH = "main"
 
     /**

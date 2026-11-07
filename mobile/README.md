@@ -1,23 +1,23 @@
-# 移动端（iOS / Android）
+# 移动端容器（iOS / Android）
+
+> **这个仓库只含容器，不含网关。** 网关实现（`wb_*.py` / `dashboard.html`、
+> 账号池、调度、计费、面板）属于外部项目，Android 在首装时导入，iOS 在构建时
+> 从外部 ZIP 拉取。本仓库没有任何网关源码，也不分发网关包。
+
+容器只做三件事：**装载**（项目 ZIP → App 沙盒）、**托管**（内嵌 CPython 启动网关、
+前台服务 / 后台保活）、**展示**（WebView 面板、通知、实时活动）。
+
+Android 是**运行时导入**：APK 里只有 CPython 运行时与薄运行时，首装界面两个入口
+把外部网关项目装进沙盒（详见「Android 的容器模式」）。iOS 是**构建时注入**：
+`sync-core.sh` 从外部项目 ZIP 拉取核心放进包内，随包交付，没有运行时导入界面。
 
 > **实现方式：Vibe Coding**
 >
 > `mobile/` 下的全部代码——Kotlin 外壳、Swift 外壳、`wb_mobile_runtime.py`、
-> Gradle / XcodeGen 工程描述、构建脚本与两条 CI 工作流——都是 **Vibe Coding**
+> Gradle / XcodeGen 工程描述、构建脚本与 CI 工作流——都是 **Vibe Coding**
 > 的产物：通过对话描述需求、由 AI 直接生成并反复迭代，几乎没有逐行人工审查。
->
-> 网关内核 `wb_*.py` 与 `dashboard.html` **不在此列**，它们是仓库原有的实现，
-> 移动端只是原样打包，未做改写。
->
-> 因此移动端外壳属于**实验性代码**：两端都能构建、能在设备上跑通主链路，
-> 但异常分支、边界处理与长期可维护性没有经过人工 review。用于生产或分发前
-> 请自行评估，遇到问题也请以「AI 生成代码」的预期来定位。
-
-把电脑版的 WorkBuddy 多账号网关搬到手机上。**没有另写一套业务逻辑**：仓库根目录
-的 `wb_*.py` 与 `dashboard.html` 就是运行的内核，两端只做了「托管 + 平台适配」。
-
-Android 采用**容器模式**：APK 里只有 CPython 运行时与外壳，网关本体由用户导入
-仓库 ZIP 提供（详见下文「Android 的容器模式」）。iOS 仍是打包核心的方式。
+> 因此属于**实验性代码**：两端都能构建、能在设备上跑通主链路，但异常分支、
+> 边界处理与长期可维护性没有经过人工 review。用于生产或分发前请自行评估。
 
 ```
 mobile/
@@ -32,10 +32,10 @@ mobile/
 │   │   │   ├── MainActivity.kt      # WebView 加载面板 + 原生菜单
 │   │   │   └── Prefs.kt             # 端口 / 局域网 / 自启 / 当前项目
 │   │   └── python/wb_hub_env.py     # 容器运行时：解压 ZIP、找项目根、托管网关
-│   └── app/build.gradle.kts         # 版本号从 wb_proxy.py 解析；不再打包核心
+│   └── app/build.gradle.kts         # 版本号从 mobile/VERSION 读取；不打包网关核心
 └── ios/                         # Swift 外壳 + 内嵌 Python.framework
     ├── project.yml                  # XcodeGen 工程描述
-    ├── scripts/sync-core.sh         # 复制核心 + 铺标准库（含二进制扩展）+ 装 certifi
+    ├── scripts/sync-core.sh         # 拉取外部核心 + 铺标准库（含二进制扩展）+ 装 certifi
     ├── scripts/install-python.sh    # 构建后：lib-dynload 的 .so 转 Frameworks/*.framework
     ├── ProxyGatewayRuntime/Sources/
     │   ├── PyBridge.swift           # CPython C API 桥（GIL、PYTHONHOME/PYTHONPATH）
@@ -56,9 +56,10 @@ mobile/
 
 ## 为什么是「内嵌 Python」而不是重写
 
-网关是一万三千行的纯标准库 Python（账号池、双区域调度、计费、用量、面板接口、
-上游转发、指纹与风控细节）。用 Kotlin/Swift 重写一遍意味着两套实现长期漂移，
-而这份代码的价值恰恰在那些细节里。内嵌解释器后，**PC 版升级即移动端升级**：
+被装载的网关是一万三千行的纯标准库 Python（账号池、双区域调度、计费、用量、
+面板接口、上游转发、指纹与风控细节），但它**不在本仓库里**。容器既不重写它，
+也不打包它的源码，只内嵌 CPython 让它原样跑起来：换网关只要换一份 ZIP，
+不需要改外壳，也不存在两套实现长期漂移。
 
 - Android：Chaquopy 16.1 + CPython 3.13（`libpython3.13.so` + OpenSSL + sqlite3）；
 - iOS：BeeWare [python-app-support](https://github.com/beeware/Python-Apple-support)
@@ -105,7 +106,7 @@ mobile/
 | 明文回环 | `network_security_config` 放行 127.0.0.1 | ATS 例外 + `NSAllowsLocalNetworking` |
 | HTTPS 根证书 | Android 系统证书目录（`SSL_CERT_DIR`） | 随包 `certifi`（iOS 无系统 CA 路径） |
 | 局域网访问 | 绑 0.0.0.0，通知里给 IP；自动生成 API Key | 同左，另需「本地网络」权限 |
-| 版本号 | Gradle 从 `wb_proxy.py` 的 `server_version` 解析 | CI 从同一处解析并注入 `MARKETING_VERSION` |
+| 版本号 | Gradle 读 `mobile/VERSION` | CI 读同一份并注入 `MARKETING_VERSION` |
 
 **Android 的「跟随系统」为什么要单独走一条通道**：`targetSdk 33+` 的 WebView 是按
 **App 主题的 `isLightTheme`** 决定 `prefers-color-scheme` 的（[Android 13 行为变更](https://developer.android.google.cn/about/versions/13/behavior-changes-13)），
@@ -155,7 +156,8 @@ CSS token，改名/改值时两边一起动：
 还带着主题的 `colorButtonNormal`，不清掉会把自绘的圆角背景整块染成系统灰。
 
 `tests/_test_android_ui_tokens.py` 同时盯两件事：按钮有没有在布局里分叉、外壳配色
-有没有跟面板 token 跑偏（面板换肤而外壳没跟，套件会红）。
+有没有跟面板 token 跑偏。面板属于外部项目，仓库里没有它的文件，所以这套 token 以
+**显式契约**写在测试里；外部面板换肤时，同步改契约与 `colors.xml`。
 
 ## iOS 后台保持与实时活动
 
@@ -249,10 +251,10 @@ release 的保留规则在 `app/proguard-rules.pro`：Chaquopy 的 `com.chaquo.p
 - 因此 `ndk.abiFilters` **只能写在 flavor 里**：它与 `defaultConfig` 是取并集，
   留在 `defaultConfig` 会让两个 flavor 都拿到两个 ABI，拆包白做。
 - 合并后的包从 34.7 MB 降到约 19 MB（省掉另一套 native 库 + 标准库，以及容器模式不再携带的网关源码）。
-- `versionName` 形如 `1.10.20261106-arm64`：前两段跟仓库 `wb_proxy.py` 的
-  `server_version`，**第三段是构建日期（8 位 `yyyyMMdd`）**，末尾是 ABI 后缀。日期段
+- `versionName` 形如 `1.10.20261107-arm64`：前两段取 `mobile/VERSION`，
+  **第三段是构建日期（8 位 `yyyyMMdd`）**，末尾是 ABI 后缀。日期段
   让人一眼看出这个包是哪天出的、跨天自然递增；同日多次构建版本名相同（`versionCode`
-  仍由 `server_version` 算，不随日期漂移，覆盖安装不受影响）。`versionCode` 两个 flavor
+  仍由 `mobile/VERSION` 算，不随日期漂移，覆盖安装不受影响）。`versionCode` 两个 flavor
   相同，同一台设备本来也只能装一个。
 - CI 会逐个包校验「只有一套 ABI 原生库 + 一份 ABI 专属标准库」，拆包没生效直接失败。
 
@@ -283,7 +285,7 @@ APK 是**运行环境**，不是网关本身。装网关只有一件事——把
 
 打开 App，点首装界面上的「**自动更新（联网下载）**」（装好之后从右上角菜单进
 「自动更新」）。App 会自己去
-`https://v4.gh-proxy.org/https://github.com/ardeyouxipianyi/proxy-gateway-runtime/archive/refs/heads/main.zip`
+`https://v4.gh-proxy.org/https://github.com/ardeyouxipianyi/workbuddy2api-hub/archive/refs/heads/main.zip`
 下载仓库 `main` 的最新快照（首选 gh-proxy 镜像，失败再退第二个镜像、最后直连
 github.com），下载完走与手动更新完全相同的解压/切指针/重新加载流程。覆盖层会实时显示
 「正在下载…42%（1.1 MB）」这类进度，失败时给出每个地址各自的失败原因。
@@ -293,7 +295,7 @@ github.com），下载完走与手动更新完全相同的解压/切指针/重�
 
 **二、手动更新**
 
-1. 在 GitHub 仓库点 **Code → Download ZIP**，把压缩包发到手机（微信/网盘/数据线均可）；
+1. 在**网关项目**仓库点 **Code → Download ZIP**，把压缩包发到手机（微信/网盘/数据线均可）；
 2. 打开 App → 点「手动更新（选择压缩包）」（或菜单里的「手动更新」）→ 在系统文件
    选择器里选中这个 ZIP；
 3. App 自动解压到 `filesDir/data/projects/<时间戳>/`，找到含 `wb_proxy.py` 的项目根，
@@ -352,8 +354,8 @@ APK 仍然能装、能启动，只是会停在「尚未导入网关项目」。
    `.py`/`.pyc`、`dashboard.html` 或 pip 依赖，直接判红。
 3. `.gitignore` 保留 `assets/core/` 规则当绊线——真有人拷回来至少不会入库。
 4. 打包路径只有 `src/main/python` 一处：构建脚本不改写 `sourceSets` / `assets.srcDirs`，
-   仓库根只在算版本号时读一次 `wb_proxy.py` 的 `server_version`（只读不拷；前两段进
-   版本名，`versionCode` 由它算，第三段换成构建日期）。
+   构建脚本只在算版本号时读一次 `mobile/VERSION`（只读不拷；前两段进版本名，
+   `versionCode` 由它算，第三段换成构建日期）。
 
 自动化测试：`python tests/_test_android_auto_import.py`（外壳接线 + 解压契约，离线秒级）；
 加 `WB_LIVE_IMPORT=1` 会真的从镜像下一次并解压，验证地址当前可用、包结构没变。
@@ -386,7 +388,7 @@ python mobile/android/tools/e2e_auto_import.py --keep # 结束后不停 App，�
 ```bash
 # 需要 macOS + Xcode；CI 用 macos-15 + Xcode 26（iOS 26 的持续后台任务要用新 SDK）
 cd mobile/ios
-./scripts/sync-core.sh                       # 复制核心 + 合并标准库/二进制扩展 + 装 certifi
+./scripts/sync-core.sh                       # 拉取外部核心 + 合并标准库/二进制扩展 + 装 certifi
 brew install xcodegen && xcodegen generate   # 生成 ProxyGatewayRuntime.xcodeproj
 # Vendor/Python.xcframework 需先下载（CI 会自动做）：
 #   https://github.com/beeware/Python-Apple-support/releases/download/3.13-b18/Python-3.13-iOS-support.b18.tar.gz
@@ -420,13 +422,15 @@ open ProxyGatewayRuntime.xcodeproj                  # 选自己的 Team 后可�
 
 | 工作流 | 触发 | 产物 |
 |---|---|---|
-| `.github/workflows/mobile-android.yml` | 改动 `wb_*.py` / `dashboard.html` / `mobile/**` | `proxy-gateway-runtime-android`（arm64 / x64 各一份 debug + release） |
-| `.github/workflows/mobile-ios.yml` | 同上 | `proxy-gateway-runtime-ios`（未签名 IPA） |
+| `.github/workflows/tests.yml` | push / PR | 6 个容器套件，Python 3.9 / 3.12 × Ubuntu / Windows |
+| `.github/workflows/mobile-android.yml` | 改动 `mobile/**` | `proxy-gateway-runtime-android`（arm64 / x64 各一份 debug + release） |
+| `.github/workflows/mobile-ios.yml` | 改动 `mobile/**` | `proxy-gateway-runtime-ios`（未签名 IPA） |
 
-两条流水线都会先做语法门禁（`compileall`）并断言**核心确实进了包**
-（APK 里查 `assets/core/wb_proxy.py`，IPA 里查 `app/wb_proxy.py`、
-`python/lib/python3.*/os.py` 与 `Frameworks/Python.framework`），
-避免打出一个「壳在、内核不在」的包。打 `v*` tag 时产物会附加到 release 草稿。
+两条移动端流水线先做语法门禁（只编译容器桥接层）。Android 断言 **APK 里没有
+网关文件**（`*.py` / `dashboard.html` / `assets/core/`）；iOS 断言
+`app/wb_proxy.py`、`app/dashboard.html`、`python/lib/python3.*/os.py` 与
+`Frameworks/Python.framework` 齐备。前者守「容器不带网关」，后者守「外部核心
+确实注入了」。容器版本由 `mobile/VERSION` 统一提供。
 
 ## 已知限制
 
@@ -434,17 +438,16 @@ open ProxyGatewayRuntime.xcodeproj                  # 选自己的 Team 后可�
    （`BGContinuedProcessingTask`），切到后台后系统继续给网关后台时间，并在锁屏/灵动岛
    显示一张进度卡片。时长由系统按电量与后台任务数量决定，到期后会停监听、回前台自动恢复。
    iOS 26 以下没有这个能力，仍是 20 秒宽限后停止监听。需要 24×7 常驻请用 Android。
-2. **账号登录**：电脑端 `.info` 凭据自 2026-09-24 起是加密信封，解密密钥要从未被
-   扫描的桌面客户端进程内存里回收，手机上做不到——所以 App 菜单里**不提供**「导入账号
-   凭证」这个入口。登录一律在面板里点「+ 添加账号 (OAuth)」完成扫码授权。
+2. **账号登录**：导入的网关项目自行负责账号登录，容器不提供凭证导入入口；
+   登录在面板里完成扫码授权。
 3. **未签名 IPA**：需要自行签名；且仓库没有内置 App 图标（sideload 无影响，上架需补）。
 4. **端口**：默认 8788，可在「端口设置」里改；改端口或局域网开关会重启网关。
-5. **首次启动较慢**：要解压核心、初始化账号池与模型目录（几秒），期间面板显示
-   「正在启动」。
+5. **首次启动较慢**：Android 要下载 / 解压外部网关项目并初始化网关（几秒到几十秒），
+   期间面板显示「正在启动」。
 6. **Android 菜单里的「退出」**：会连网关和前台服务一起停掉再关 App（菜单不再单列
    「启动/停止」——只想停网关用通知栏的「停止」按钮，重新打开 App 再点覆盖层的
    「启动网关」即可）。
-7. **旋转屏幕会重建界面（Android）**：清单里只放行 `keyboardHidden`，旋转时 Activity 重建。
+7. **旋转屏幕会重建界面（Android）**：清单只放行 `keyboardHidden|uiMode`，旋转时 Activity 重建。
    放行 `orientation|screenSize` 时 Activity 不重建，WebView 会留着上一次的页面缩放，
    横屏右侧约 12% 的按钮（关闭网关、修改密码、添加 API Key）被挤出屏幕；实测
    `reload()` 清不掉这个缩放，只有新建的 WebView 才会按新视口重算。网关跑在前台服务里，

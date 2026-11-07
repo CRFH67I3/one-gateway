@@ -1,29 +1,24 @@
 name: mobile-android
 
-# Android shell for the gateway.
+# Android container build.
 #
-# The gateway itself is the repository-root Python code (stdlib only); this job
-# only packages it into an APK with Chaquopy's CPython runtime. It therefore
-# rebuilds whenever the core, the panel, or the Android shell changes - a core
-# change must never ship an APK built from stale Python.
+# This repository holds only the shell: Chaquopy's CPython plus a thin runtime
+# that imports an external gateway ZIP on first launch. No gateway source is
+# packaged into the APK (a step below asserts that), so an upstream gateway
+# change never needs an APK rebuild - only shell changes do.
 on:
   # 手动触发入口：代理不通、或想用当前 main 立刻重出一份包时用得上。
   workflow_dispatch:
   push:
     branches: [main]
-    # 发版 tag 要重新出包：Release 里放的必须是「这一版核心打进 APK」的产物，
-    # 不能复用 main 上一次构建留下的 artifact。tag 推送不参与 paths 过滤，
-    # 所以即使这个 tag 只动了文档，也会照常构建。
+    # 发版 tag 要重新出包，不能复用 main 上一次构建留下的 artifact。
+    # tag 推送不参与 paths 过滤，即使只动了文档也会照常构建。
     tags: ["v*"]
     paths:
-      - "wb_*.py"
-      - "dashboard.html"
       - "mobile/**"
       - ".github/workflows/mobile-android.yml"
   pull_request:
     paths:
-      - "wb_*.py"
-      - "dashboard.html"
       - "mobile/**"
       - ".github/workflows/mobile-android.yml"
 
@@ -56,9 +51,9 @@ jobs:
         with:
           gradle-version: "9.6.0"
 
-      - name: Syntax gate (gateway core + bridge)
+      - name: Syntax gate (container bridge)
         run: |
-          python -m compileall -q wb_proxy.py wb_accounts.py wb_settings.py \
+          python -m compileall -q \
             mobile/shared mobile/android/app/src/main/python
           # compileall 会在被编译的源码旁边留 __pycache__。这个目录稍后会被
           # Chaquopy 整个打进 assets/chaquopy/app.imy，所以编译完必须清掉——

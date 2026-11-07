@@ -6,7 +6,7 @@
          手机上打开面板看到的正是这一套（旧的 :root 暖色版只在旧界面下生效），
          而外壳和面板拼在同一个屏幕上——状态栏压着面板顶栏、覆盖层直接盖在面板区域上。
          两边各写一套颜色，看上去就是两个 App 拼起来的。
-         tests/_test_android_ui_tokens.py 会拿这里的值跟面板 token 对账。 -->
+         tests/_test_android_ui_tokens.py 会拿这里的值跟外部面板 token 契约对账。 -->
     <color name="colorPrimary">#4F46E5</color>
     <color name="header_bg">#FFFFFF</color>
     <color name="page_bg">#F4F6F9</color>

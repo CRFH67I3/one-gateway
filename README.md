@@ -1,266 +1,102 @@
-# Proxy Gateway Runtime — 中转网关运行时
+# Proxy Gateway Runtime · 中转网关运行时
 
-> 原名 WorkBuddy2API-Hub。项目已更名，仓库迁移到 [CRFH67I3/proxy-gateway-runtime](https://github.com/CRFH67I3/proxy-gateway-runtime)；旧地址仍会被 GitHub 重定向。它把 WorkBuddy（国际版 / 国内版）与 CodeArts 的多账号池封装成标准 OpenAI 兼容 API——「中转」指请求转发与账号调度，「运行时」指它本身就是可独立部署的服务进程。
+> **本仓库只包含移动端容器外壳，不包含网关。**
+> 网关实现（`wb_*.py`、`dashboard.html`、账号池、调度、计费、面板）属于外部项目，
+> 由用户在 App 内通过「自动导入 / 手动导入」装载。这里既没有网关源码，也不分发网关包。
 
-> [!IMPORTANT]
-> **项目进入低频维护（2026-10-23） / Low-frequency maintenance**
->
-> 大幅降低更新频率与 Issue / PR 处理速度。请先阅读风险说明，再决定是否继续使用。
->
-> Updates and responses to issues / pull requests will be significantly reduced. Read the risk notice below before continuing.
+把一部 Android / iOS 手机变成可以运行外部网关项目的运行时：内嵌 CPython、前台服务与
+后台保活、WebView 面板、项目导入与更新、系统深浅色跟随、通知与实时活动。
 
-> [!WARNING]
-> **WorkBuddy 上游正在收紧对非官方客户端的识别与拦截。**
->
-> - **封禁**：2026-10-23 下午起，非官方客户端的识别与拦截明显收紧。
-> - **维护者**：近期工作压力增大，无法保证及时更新与响应。
-> - **可用性**：上游可能随时进一步收紧，导致本项目不可用。
-> - **账号风险**：使用非官方客户端造成的风控、限流或封禁，由使用者自行承担。
->
-> **Upstream enforcement** tightened detection and blocking of unofficial clients from the afternoon of 2026-10-23. The maintainer is under increased workload and cannot guarantee timely updates or replies. The upstream may tighten further at any time; rate limits, account restrictions or bans caused by using an unofficial client are the user's responsibility.
+「中转」描述的是**被装载的那个网关**做什么；「运行时」才是这个仓库本身——它只负责
+装载、启动、托管与展示，不含任何网关业务逻辑。
 
-本项目仅用于协议学习、研究与个人自用。请优先使用官方客户端，不要使用主账号，不要共享账号，也不要用于商业转售。
+## 边界
 
-This project is for protocol research and personal use only. Prefer the official client, do not use your primary account, and do not resell or share access.
-
-<p align="center">
-  <a href="https://github.com/CRFH67I3/proxy-gateway-runtime/releases"><img src="https://img.shields.io/badge/Release-v1.10.9-2496ED?style=flat-square" alt="Version 1.10.9"></a>
-  <img src="https://img.shields.io/badge/Python-3.9+-blue.svg?style=flat-square" alt="Python">
-  <img src="https://img.shields.io/badge/API-OpenAI_Compatible-412991?style=flat-square" alt="OpenAI API">
-  <img src="https://img.shields.io/badge/Dual_Realm-Intl_&_CN-0DBD8B?style=flat-square" alt="Dual Realm">
-  <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License">
-  <img src="https://img.shields.io/badge/Maintenance-Low--frequency-c96f3d?style=flat-square" alt="Low-frequency maintenance">
-</p>
-
-## 核心特性
-
-- **标准 API 兼容**：将 WorkBuddy（国际版/国内版）与 CodeArts 封装为标准 OpenAI 格式（Chat Completions / Responses），无缝支持 Codex、Claude Code、NextChat 等各类客户端。
-- **移动端原生运行**：Android 与 iOS 外壳内嵌 CPython 直接托管同一份 `wb_*.py` 与面板，无需电脑、无需 Docker，装个 App 就是完整网关。
-- **多账号池与出口隔离**：支持浏览器 OAuth 快速导入、每账号独立出口代理槽绑定、设备指纹隔离、自动故障转移与配额轮转。
-- **自动化福利与签到**：内置国内版全套成长任务、加油站签到与猫猫旅行，支持国际版每日活跃会话与 CodeArts 自动签到。
-- **可视化管理看板**：提供 Web 仪表盘，支持实时请求日志、Token/积分透视、多 API Key 权限分发（模型/账号白名单）与额度护栏。
-- **手机端同源运行**：Android（Chaquopy 内嵌 CPython）与 iOS（BeeWare Python.framework）外壳直接托管同一份 `wb_*.py` 与面板，PC 版升级即移动端升级，详见[手机端章节](#4-手机端ios--android)与 [`mobile/README.md`](mobile/README.md)。
-
-> ⚡ **Vibe Coding 产物**：本项目为 100% Vibe Coding 协同产物——人类开发者提出架构与业务意图，AI 助手端到端完成逆向分析、链路调度、WAF 指纹脱敏与界面编写。
-
-> 📌 **提交代码贡献前**：请先查看并**严格遵循**贡献手册 [`CONTRIBUTING.md`](CONTRIBUTING.md)——提交格式、测试门禁与端到端冒烟要求都在那里（AI / 智能体请特别注意其中的硬性规则节）。
-
----
-
-## 💖 赞助商
-
-> 想出现在这里？联系 [ardeyouxipianyi@gmail.com](mailto:ardeyouxipianyi@gmail.com)
-
-<table>
-<tr>
-<td width="180" align="center" valign="middle">
-  <a href="https://agentrouter.org/register?aff=unrV"><img src="https://raw.githubusercontent.com/88lin/picx-images-hosting/master/90C5FAD072EA247822CB88BB32512A41.webp" alt="Agent Router" width="150"></a>
-</td>
-<td valign="middle"><b><a href="https://agentrouter.org/register?aff=unrV">Agent Router</a></b>&nbsp;是免费公益大模型 API 平台，支持 Claude-opus-5.5、GPT-6 Astra、GPT-6.1 Sol、deepseek-v4-flash 等主流模型，国内直连。注册送 ＄175（每日签到得 ＄25，被邀得 ＄50），支持 GitHub / LinuxDo 登录。</td>
-</tr>
-</table>
-
-
----
-
-## 一、快速启动
-
-### 1. 本机运行
-
-- **Windows**：双击 `start-wb-proxy.bat`（静默后台运行 + 独立日志窗口）；如需前台控制台窗口，双击 `start-wb-proxy-visible.bat`。
-- **macOS / Linux**：双击 `start-wb-proxy.command` 或在终端执行 `./start-wb-proxy.sh [端口]`（默认 8788，需要 Python 3.9+）。
-- **局域网共享模式**：运行 `start-wb-proxy-lan.bat`（Windows）或 `./start-wb-proxy-lan.sh`（macOS/Linux），首次启动将自动生成高强度 API Key 并在控制台打印。
-- 启动后访问：
-  - **Web 看板**：`http://127.0.0.1:8788/`（默认访问密码 `admin`，首次登录请在设置中修改）
-  - **API 地址**：`http://127.0.0.1:8788/v1`
-
-### 2. CodeArts 原生第三出口
-
-网关内置进程内直连华为云 CodeArts，支持聊天 SSE 协议转换与自动签到，无需单独运行第三方桥接服务：
-1. 打开看板 →「设置 → CodeArts 接入」，勾选「启用 CodeArts 出口」并保存；
-2. 切换至看板顶部「CodeArts」视图，点击「+ 添加账号 (OAuth)」完成华为云授权；
-3. 在「设置 → API Key」中新建 Key 并绑定出口为 `CodeArts`（或全局通用）即可调用。
-
-### 3. 手机端（iOS / Android）
-
-网关本体是纯标准库 Python，因此手机端没有另写一套逻辑：**同一份 `wb_*.py` 与
-`dashboard.html` 原样打包进 App**，由原生外壳托管（Android 用 Chaquopy 内嵌
-CPython 3.13，iOS 链接 BeeWare `python-app-support` 的 `Python.framework`）。
-面板、账号池、配额、模型目录与电脑版完全同源，PC 版升级即移动端升级。
-
-| 平台 | 形态 | 关键适配 |
-|---|---|---|
-| Android | 前台服务常驻 + 通知栏 | 息屏/切后台链路不断；通知里直接给出 `127.0.0.1:8788/v1` 与局域网地址；菜单为「重启网关 / 端口设置 / 手动更新 / 自动更新 / 复制 API 地址 / 查看启动日志 / 关于与项目信息 / 退出」 |
-| iOS | 前台运行；iOS 26 可开「持续后台处理」 | 进后台 20 秒宽限后关闭监听，回前台自动恢复；iOS 26+ 可选用 `BGContinuedProcessingTask` 保活，并可选锁屏实时活动 / 灵动岛显示（三个开关都能单独关掉） |
-
-- 构建产物由 `.github/workflows/mobile-android.yml`（APK）与 `mobile-ios.yml`（未签名 IPA）自动产出，也支持本地构建；
-- Android 按 ABI 拆包，两个 flavor 各自只带一套原生库：`arm64`（真机，约 19 MB）与 `x64`（模拟器），比双 ABI 合包（约 35 MB）小近一半；
-- **移动端外壳全部由 Vibe Coding（AI 辅助生成、对话式迭代）完成**，未经逐行人工审查，属实验性代码；网关内核未改写，仍是本仓库原有的 `wb_*.py`。用前请自行评估风险；
-- 详细原理、目录结构、构建命令与已知限制见 **[`mobile/README.md`](mobile/README.md)**。
-
----
-
-## 二、账号接入与 API Key 权限
-
-### 1. 账号添加与代理出口绑定
-- 打开看板 `http://127.0.0.1:8788/`，点击「+ 添加账号 (OAuth)」，在浏览器中完成官方登录授权即可自动入库。
-- **独立代理出口槽（Proxy Slot）**：在看板中可按需配置并命名 HTTP/SOCKS5 出口代理（支持账号密码认证），支持将账号与特定代理槽位绑定，账号身份请求与出站调用均自动走该代理。
-
-### 2. 多 API Key 权限管理
-- 「设置」页支持创建多个独立 API Key：
-  - **出口绑定**：可固定走国际版、国内版或 CodeArts；
-  - **模型限制**：支持通配符白名单（如 `deepseek*`, `gpt-6-astra`），违规请求本机直接返回 400；
-  - **账号白名单**：可精确限定该 Key 仅允许调度的账号范围；
-  - **用量透视**：数据看板按 Key 独立统计调用次数、Token 消耗、缓存命中与积分。
-
----
-
-## 三、客户端接入配置
-
-- **Base URL**：`http://127.0.0.1:8788/v1`（局域网为 `http://<局域网IP>:8788/v1`）
-- **API Key**：看板「设置」中添加并绑定的 Key
-- **模型名称**：调用 `/v1/models` 中列出的任意官方对齐模型 ID（如 `deepseek-v4.1-flash`, `gpt-6-astra`, `hy3`）
-
-**Codex CLI / Responses API**
-
-```bash
-export OPENAI_BASE_URL="http://127.0.0.1:8788/v1"
-export OPENAI_API_KEY="你在看板设置中添加并绑定的API_Key"
-```
-
-**Claude Code / Anthropic Messages（实验性）**
-
-网关支持实验性 Messages 协议适配，因长会话缓存命中率差异，默认关闭：
-```bash
-# 网关端设置 WB_ENABLE_ANTHROPIC_MESSAGES=1 开启后生效：
-export ANTHROPIC_BASE_URL="http://127.0.0.1:8788"
-export ANTHROPIC_API_KEY="你在看板设置中添加并绑定的API_Key"
-```
-
----
-
-## 四、常用环境变量
-
-| 环境变量 | 默认值 | 说明 |
-|---|---|---|
-| `PORT` | `8788` | 网关监听端口 |
-| `API_KEY` | 自动生成 | 初始 API Key（看板配置多 Key 后优先由看板管理） |
-| `WB_DEPLOY_MODE` | `lan` | 部署模式：`lan`（0.0.0.0）、`local`（127.0.0.1）、`public` |
-| `WB_MAX_PAYLOAD_BYTES` | `16777216` | 单请求体上限（字节，默认 16MB，支持 1–256 MB） |
-| `WB_DEEPSEEK_FLASH_FORCE_SG` | `0` | 国际版 deepseek-v4.1-flash 是否强制出站走新加坡付费通道 |
-| `WB_ENABLE_ANTHROPIC_MESSAGES` | `0` | 是否开启实验性 Anthropic Messages 协议转换 |
-| `WB_BACKGROUND_MODEL_TARGET` | 留空 | 后台模型别名改写目标（如 DSH 客户端自动映射） |
-| `WB_CA_BUNDLE` | 留空 | 自签根证书路径（供抓包调试或中间代理使用） |
-| `WB_CN_CHAT_UPSTREAM` | 官方默认 | 国内版出站代理地址 |
-| `WB_IDENTITY_OS` | 宿主系统 | 仅 CLI 身份：覆盖 `x-stainless-os`（如 `Linux` / `Windows`） |
-| `WB_IDENTITY_ARCH` | 宿主架构 | 仅 CLI 身份：覆盖 `x-stainless-arch`（如 `x64` / `arm64`） |
-| `WB_IDENTITY_NODE_VERSION` | 官方默认 | 仅 CLI 身份：覆盖 `x-stainless-runtime-version` |
-
-遇到上游 `400 / 11-128` 时，先按 [`docs/TROUBLESHOOTING-11-128.md`](docs/TROUBLESHOOTING-11-128.md) 收集同一请求的
-身份、最小请求和提示词对照结果；不要先轮换账号。
-
-### 面板内「安装更新」需要什么
-
-面板「设置 → 更新」里的 **安装更新** 不是随代码就有的。网关进程以普通用户运行，只负责
-写一份校验过的请求；真正替换文件的动作必须由本机的特权执行者完成。所以按钮可用与否，
-取决于这台机器注册了下面哪一种通道（都没有时按钮置灰，并直接告诉你当前是哪种部署、
-该去哪里装）：
-
-| 部署形态 | 怎么让它可用 |
+| 仓库里有什么 | 仓库里没有什么 |
 |---|---|
-| Linux + systemd（`/opt/proxy-gateway-runtime`，`wbproxy` 用户） | `sudo sh ops/aliyun/install-updater.sh` |
-| 自建 supervisor（systemd / 自带守护） | `WB_UPDATE_INSTALL_ENABLED=1` + `WB_UPDATE_EXECUTOR=external`（或请求目录里放 `executor.json`），由部署侧的循环脚本消费 `/run/proxy-gateway-runtime-updater/request.json` |
-| 便携包（release zip，含 `release-manifest.json` 与 `wb_update_apply.py`） | 无需安装，解压运行即自带 |
-| 手机 App（Android / iOS） | 不适用：代码由 App 外壳替换，用 App 菜单里的「自动更新」 |
+| Android Kotlin 外壳 + Chaquopy CPython | 网关 Python 实现（`wb_*.py`） |
+| iOS Swift 外壳 + Python.framework | 面板（`dashboard.html`） |
+| 薄运行时、桥接层、解压 / 切指针 / 重启 | 账号池、API Key、配额、用量数据 |
+| 构建脚本、CI、容器测试 | Docker / 服务器 / 路由器部署脚本 |
 
-`install-updater.sh` 会安装 `proxy-gateway-runtime-updater.path` / `.service`、创建
-`/run/proxy-gateway-runtime-updater`（root 与 `wbproxy` 组可写）、并给网关的 systemd drop-in
-写入 `WB_UPDATE_INSTALL_ENABLED=1`；脚本自身带失败回滚与安装后健康检查。装完确认：
+容器与网关之间只有一条契约：**一份根目录含 `wb_proxy.py` 与 `dashboard.html` 的项目 ZIP**。
+ZIP 来自哪里、里面是什么版本，容器不关心；换网关不需要重装 App，升级 App 也不会动
+已经导入的网关。
 
-```bash
-systemctl status proxy-gateway-runtime-updater.path   # Active: active (waiting)
-systemctl status proxy-gateway-runtime-updater.service
+## 两个导入入口
+
+首装与日后升级走的是同两条路，界面行为保持不变：
+
+1. **自动导入（联网下载）** — 首装界面下方按钮，装好之后在右上角菜单叫「自动更新」。
+   默认下载 `ardeyouxipianyi/workbuddy2api-hub` 的 `main` 分支快照，首选 gh-proxy
+   镜像，失败依次退到第二个镜像、直连 github.com；下载完走与手动导入完全相同的
+   解压 / 切指针 / 重启流程。想换成自己的仓库或分支，改
+   `mobile/android/app/src/main/java/com/proxygateway/runtime/GatewayBridge.kt`
+   里的 `REPO` / `BRANCH` 两个常量即可。
+2. **手动导入（选择压缩包）** — 选一份本地 ZIP，离线可用，也能装任意版本或回退旧版。
+   菜单里叫「手动更新」。
+
+导入后项目解压到 App 沙盒 `filesDir/data/projects/<时间戳>/`，**成功才切指针**，
+失败时旧项目继续可用；账号等数据放在独立的 `data/{accounts,usage,catalog,logs}`，
+覆盖升级不丢配置。面板地址默认 `http://127.0.0.1:8788/`。
+
+> iOS 的形态不同：它在**构建时**由 `mobile/ios/scripts/sync-core.sh` 从外部项目 ZIP
+> 拉取核心注入包内，没有运行时导入界面。换源用 `GATEWAY_CORE_ZIP_URL`，离线构建用
+> `GATEWAY_CORE_ZIP` 指一份本地 ZIP。
+
+## 版本
+
+`mobile/VERSION` 是容器版本的唯一来源，Android 与 iOS 都读它，与导入的网关版本
+彼此独立。Android `versionName` = 前两段 + 8 位构建日期 + ABI 后缀（如
+`1.10.20261107-arm64`），`versionCode` 只由 `mobile/VERSION` 计算。
+
+## 目录
+
+```
+mobile/
+├── VERSION                    # 容器版本（Android / iOS 共用）
+├── README.md                  # 移动端构建与实现细节
+├── shared/wb_mobile_runtime.py    # 共享运行时：托管导入项目的 start/stop/status
+├── android/                   # Kotlin 外壳 + Chaquopy CPython + 薄运行时
+└── ios/                       # Swift 外壳 + Python.framework + 构建脚本
+tests/                         # 6 个容器测试套件 + run_all.py
+.github/workflows/             # tests / mobile-android / mobile-ios
 ```
 
-装好之后，「安装更新」只做**手动**安装；「每天自动检查更新」默认关闭，且即使打开也只
-检查、不安装。
+## 构建
 
+Android（JDK 17 + Android SDK platform 37 / build-tools 36，CI 用 Gradle 9.6）：
 
----
-
-## 五、主要 API 端点
-
-| 接口 | 方法 | 端点 | 说明 |
-|---|---|---|---|
-| 聊天补全 | `POST` | `/v1/chat/completions` | 标准 OpenAI 聊天接口（支持流式 SSE 与思维链回填） |
-| 交互式响应 | `POST` | `/v1/responses` | OpenAI Responses 协议接口（Codex 专用） |
-| 模型目录 | `GET` | `/v1/models` | 获取当前出口对齐的官方可用模型列表 |
-| 生图 | `POST` | `/v1/images/generations` | 文生图 / 图生图（需在设置中启用媒体模块） |
-| 生视频 | `POST` | `/v1/videos` | 异步生视频任务提交（本地并发排队与空闲调度） |
-| 视频状态 | `GET` | `/v1/videos/<id>` | 轮询视频生成进度与结果 |
-| 产物下载 | `GET` | `/v1/videos/<id>/content` | 下载视频 MP4 产物直链 |
-| 健康检查 | `GET` | `/health` | 网关运行状态、可用账号数与就绪模型分布 |
-
----
-
-## 六、测试验证
-
-```bash
-python tests/run_all.py            # 全部套件
-python tests/run_all.py realm      # 只跑名字里含 realm 的
+```sh
+cd mobile/android && ./gradlew assembleArm64Release
 ```
 
-- 267 个套件：203 个 Python + 64 个 JS；JS 需要 PATH 上有 `node`，缺失时会跳过并提示。
-- `tests/_mobile_check.py` 是独立的 Playwright 手机/桌面布局检查器（需自行安装 Playwright），按需手动运行，不在上面的套件集里。
-- CI（`.github/workflows/tests.yml`）跑同一条命令：Ubuntu 上 python 3.9 与 3.12（3.9 是本项目声称的最低版本），Windows 上 python 3.12；推送 `v*` tag 时额外断言 **tag == 源码版本**（`-ci` 演练 tag 豁免）。
+iOS（macOS + Xcode 26 / iOS 26 SDK + XcodeGen）：
 
----
+```sh
+mobile/ios/scripts/sync-core.sh      # 拉取外部网关核心 + 铺 CPython 标准库
+cd mobile/ios && xcodegen generate && xcodebuild ...
+```
 
-## 七、版本更新记录 (Changelog)
+详细步骤、包内布局、二进制扩展转 framework、后台保活等见 [`mobile/README.md`](mobile/README.md)。
 
-### Unreleased
+## 测试与验证
 
-- **Android 切换系统深浅色不再踢回登录页**：清单放行 `uiMode`，切深浅时 Activity 不再重建——重建会把 WebView 一起销毁，而面板的登录态活在页面内存里（不是 cookie），用户只是把手机调成深色，回来就得重新输密码（真机实测掉两次，而系统深色是很多人的常开设置）。现在由 `onConfigurationChanged` 原地换肤：重刷状态栏/顶栏/覆盖层/按钮/WebView 底色（XML 里写死的 `@color` 不会随配置自动更新），再把新值用 `wb:system-theme` 派给页面；页面不重载，滚动位置与会话都保住。同步 `loadedUrl` 是关键一步，否则 2.5 秒一次的状态轮询会发现 URL 变了而立刻 `loadUrl`，等于白换肤。旋转仍然走重建（`configChanges` 只有 `keyboardHidden|uiMode`），因为 WebView 不重建会留着上一次的 pinch 缩放。
-- **APK 版本名带上构建日期**：`versionName` 从 `1.10.9-arm64` 改为 `1.10.20261106-arm64`——前两段仍跟仓库 `wb_proxy.py` 的 `server_version`，第三段换成 8 位构建日期（`yyyyMMdd`），跨天自然递增、一眼看出包是哪天出的；`versionCode` 不随日期漂移，覆盖安装不受影响。
-- **Android 首装界面两个按钮统一成一个组件**：原来「手动更新」是系统默认灰块、「自动更新」是一行裸文字，同屏两种控件。现在都由 `Hub.Button.Primary` / `Hub.Button.Secondary` 出外观——同高度、同最小宽度、同圆角、同字号，只差实心与描边，页面上不再允许单独给按钮写 background/textSize；同时清掉了主题的 `backgroundTint`（那个灰块就是它染的），并补上禁用态。外壳配色改为对齐面板新界面（`html[data-ui="next"]`）的 token：`page_bg`/`header_bg`/`text_*`/`colorPrimary` = 面板的 bg/panel/fg/dim/accent（浅色 #f4f6f9 / #4f46e5，深色 #0f1115 / #818cf8），WebView 首帧底色与面板首屏同色，不再闪白/闪灰。
-- **Android 改为「网关运行环境」形态（容器模式）**：APK 不再打包网关源码，只带 CPython 运行时与常驻托管外壳；装网关只有一件事——把一份仓库代码放进去，菜单里因此只有「手动更新」（选你手上的 ZIP，离线可用、可装任意版本）与「自动更新」（一键拉仓库 main）两个动作，首次安装与日后升级共用这两条路，都不需要凭证。解压到沙盒后即可运行，换代码不必重装 APK；账号、用量、模型目录仍存放在 App 数据目录，更新不会丢。原「项目信息」并入「关于与项目信息」，一个对话框里同时看到 App 版本、网关版本与落盘位置；菜单里的「导入账号凭证」已移除，账号登录统一走面板的 OAuth；`debug` 全量构建、`release` 走 R8 最小化构建。
+```sh
+python tests/run_all.py              # 跑全部 6 个容器套件
+```
 
-- **Android 面板「跟随系统」真正跟随手机深色**：`targetSdk 33+` 的 WebView 按 App 主题的 `isLightTheme` 决定 `prefers-color-scheme`，外壳固定浅色主题时手机切深色也只会报 light，「跟随系统」与「浅色」没有区别。现在外壳读 `uiMode` 把系统值随地址传给面板（`?sysdark=1|0`），并补了 `values-night` 的反色主题与配色，状态栏、顶栏与 WebView 首帧底色一起沉下去；浏览器里没有该参数时仍走媒体查询，桌面行为不变。
+当前 **6 个套件（6 个 Python + 0 个 JS）**：自动导入契约、构建工具链、容器纯度、
+深浅色换肤、minSdk、UI token。三条 CI 工作流：`tests`（Python 3.9 / 3.12 ×
+Ubuntu / Windows）、`mobile-android`、`mobile-ios`。
 
-- **Android 最低支持版本抬到 Android 8.0（`minSdk 26`）**：外壳的两处地基都假定这一档——常驻通知用通知渠道（`NotificationChannel`），服务启动用 `startForegroundService()`。停在 24/25 就得为它们各写一条旧路径，而 8.0 以下机型又跑不动 Chaquopy 的 Python 3.13 与现代 WebView，分叉实际永远走不到，于是删掉死代码、把底线抬平；`targetSdk` 仍为 34。
+容器纯度测试会直接翻 APK，断言包里没有 `*.py` / `dashboard.html` / `assets/core/`——
+这条边界比功能更容易被悄悄破坏。
 
-- **Android 构建工具链跟进最新平台**：`compileSdk` 从 35 抬到 **37（Android 17）**，AGP 8.7.3 → **9.4.1**、Gradle 8.9 → **9.6**、Chaquopy 16.1.0 → **17.0.0**（16.x 只支持到 AGP 8.13）。`compileSdk` 只影响编译期可见 API，`targetSdk` 仍显式钉在 34，运行时行为不变。AGP 9 的内建 Kotlin 让 `org.jetbrains.kotlin.android` 插件与 `android.kotlinOptions` 一起退场（`jvmTarget` 自动对齐 `targetCompatibility`），`defaultConfig.resValue(...)` 则要显式打开 `buildFeatures { resValues = true }` 才能用。
+## 注意
 
-- **Android 再次审计「只是一个运行容器」**：删掉 `src/main/python/__pycache__`（本地跑过一遍留下的 `.pyc`，会被 Chaquopy 一起塞进 `assets/chaquopy/app.imy`）与薄运行时里已无调用者的 `import_credential`（它直接往网关账号池塞账号，正是已下线的「导入账号凭证」那条死路）。新增 `tests/_test_android_container_purity.py`（17 例），从源码树、薄运行时、外壳、构建脚本到实际 APK 产物逐层钉住「包里没有网关的任何代码」；`mobile-android` 工作流的 `Report artifacts` 也从只看 `assets/core/wb_proxy.py` 扩展成拦截任何 `assets/core/`、`.py`/`.pyc`、`dashboard.html` 与 pip 依赖。实测：全新安装的包在未导入项目时只显示「尚未导入网关项目」，联网自动更新后跑起来的是导入的那份（App 版本 `1.10.9-x64`、网关版本 `1.10.11`，两者独立）。
-
-完整历史版本与详细变更日志请查阅 **[docs/CHANGELOG.md](docs/CHANGELOG.md)**。
-
----
-
-## 八、致谢与引用声明 (Credits & References)
-
-在协议逆向、风控规避、任务链路与工程化设计过程中，本项目参考、吸纳并致谢以下优秀开源项目与技术成果（排名不分先后）：
-
-### 核心逆向与协议参考
-- **[Sliverkiss/workbuddy2api](https://github.com/Sliverkiss/workbuddy2api)**：成长任务逆向、设备指纹派生（`derive_id`）、调度器（`Scheduler`）与 `reasoning_content` 回填设计；
-- **[L0NE-6/WorkBuddy-Daily](https://github.com/L0NE-6/WorkBuddy-Daily)**：国内版微信小程序专属事件指纹与动态专家深链任务模型；
-- **[88lin/workbuddy-auto-signin](https://github.com/88lin/workbuddy-auto-signin)**：猫猫日常旅行与成长能量开盲盒（Buddy 盲盒）安全生命周期；
-- **[linguo2625469/workbuddy2api-panel](https://github.com/linguo2625469/workbuddy2api-panel)**：国内版连登管家闭环逻辑与轻量对话活跃上报事件；
-- **[Zhengyuuuui/workbuddy2api](https://github.com/Zhengyuuuui/workbuddy2api)**：国际版 11140 风控限制识别、冷却规避与故障排查清单；
-- **[yuanyuanyuan430/workbuddy2api-hub](https://github.com/yuanyuanyuan430/workbuddy2api-hub)**：国际版 EdgeOne CDN 证书错配排查与活跃上报优雅降级方案；
-- **[CangShui/workbuddy-cliproxy-fix](https://github.com/CangShui/workbuddy-cliproxy-fix)** & **[lovingfish/workbuddy-cliproxy](https://github.com/lovingfish/workbuddy-cliproxy)**：早期客户端代理修复与网关通信原型；
-- **[mmqz/cpa-multi-plugins](https://github.com/mmqz/cpa-multi-plugins)**：多插件管理与出站调度结构参考；
-- **[ardeyouxipianyi/workbuddy2api](https://github.com/ardeyouxipianyi/workbuddy2api)**：国内版早期分发包逆向分析与出站 User-Agent 规范；
-
-### 工程化与生态基础
-- **[aodianjun/workbuddy2api-hub](https://github.com/aodianjun/workbuddy2api-hub)**：OpenWrt 路由器打包配方（`.ipk` / `.apk`）与系统服务支持；
-- **[astral-sh/python-build-standalone](https://github.com/astral-sh/python-build-standalone)**：Windows 便携版免安装精简独立 Python 运行时构建基石；
-- **[deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)**：DSH 客户端协议与提示词指纹清洗规避参考。
-
-感谢所有向本项目提交 PR、反馈 Issue 与分享实测样本的社区贡献者！
-
----
-
-## 九、免责声明 (Disclaimer)
-
-本项目仅用于协议学习与个人开发测试，不提供任何商业服务或可用性担保。因使用非官方客户端产生的账号风控、限制或封禁由使用者自行承担，请优先使用官方客户端。
+- 包标识是 `com.proxygateway.runtime`；从旧包名升级的设备必须卸载重装。
+- iOS 产物是**未签名 IPA**，需自行签名；仓库不含 App 图标。
+- 容器不校验导入包的签名或来源，只做路径安全校验（拒绝 `../` 与绝对路径）。
+  请自行确认 ZIP 的来源。
+- 提交规范见 [`CONTRIBUTING.md`](CONTRIBUTING.md)，其中有面向 AI / 智能体的硬性规则。

@@ -41,7 +41,7 @@ import wb_hub_env  # noqa: E402
 
 PRIMARY_URL = (
     "https://v4.gh-proxy.org/https://github.com/"
-    "CRFH67I3/proxy-gateway-runtime/archive/refs/heads/main.zip"
+    "ardeyouxipianyi/workbuddy2api-hub/archive/refs/heads/main.zip"
 )
 
 
@@ -50,7 +50,7 @@ def read(path):
         return fh.read()
 
 
-def make_archive(zip_path, entries, outer="proxy-gateway-runtime-main"):
+def make_archive(zip_path, entries, outer="workbuddy2api-hub-main"):
     """造一份和 GitHub `archive/refs/heads/main.zip` 同构的包。
 
     真包的每个条目都带 `repo-main/` 前缀，这一层是导入逻辑最容易踩空的地方，
@@ -96,9 +96,9 @@ class ShellWiringTests(unittest.TestCase):
         self.assertIn("applyProject(zip, update)", self.main)
         self.assertIn("GatewayBridge.installProject(", self.main)
 
-    def test_primary_url_is_the_mirror_the_user_asked_for(self):
+    def test_primary_url_points_at_external_gateway_repo(self):
         self.assertIn("v4.gh-proxy.org", self.bridge)
-        self.assertIn("CRFH67I3/proxy-gateway-runtime", self.bridge)
+        self.assertIn("ardeyouxipianyi/workbuddy2api-hub", self.bridge)
         self.assertIn("refs/heads/$BRANCH", self.bridge)
         # 首选必须是镜像，直连只能是兜底（国内直连 archive 基本超时）。
         urls = re.search(r"PROJECT_ZIP_URLS[\s\S]{0,600}?\)\n", self.bridge)
@@ -338,7 +338,7 @@ class InstallContractTests(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def _install(self, entries, outer="proxy-gateway-runtime-main"):
+    def _install(self, entries, outer="workbuddy2api-hub-main"):
         make_archive(self.zip, entries, outer)
         return wb_hub_env.install(self.zip, self.projects)
 
@@ -351,7 +351,7 @@ class InstallContractTests(unittest.TestCase):
         self.assertTrue(result["ok"], result)
         self.assertEqual(result["version"], "9.9.9")
         self.assertTrue(result["has_panel"])
-        self.assertTrue(result["root"].endswith("proxy-gateway-runtime-main"))
+        self.assertTrue(result["root"].endswith("workbuddy2api-hub-main"))
         self.assertEqual(result["files_extracted"], 3)
         # 解压到 projects/<时间戳>/，不是 projects/ 本身
         self.assertTrue(result["dest"].startswith(self.projects))

@@ -1,8 +1,8 @@
 """iOS 桥接层：Swift → 这里 → 共享运行时。
 
 与 Android 侧 `wb_hub_android.py` 一一对应：只做路径转换与 JSON 序列化，
-业务逻辑全部留在 `wb_mobile_runtime` / `wb_proxy`。两边共用同一份核心代码，
-所以「手机上的网关」和「电脑上的网关」在账号、配额、模型、计费上完全同源。
+业务逻辑全部留在导入项目的 `wb_mobile_runtime` / `wb_proxy` 里；容器侧只做
+路径转换与 JSON 序列化，不含任何网关实现。
 """
 
 import json

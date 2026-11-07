@@ -1,5 +1,5 @@
 // 移动端 Android 外壳的构建入口。
-// 网关本体是纯标准库 Python（仓库根目录的 wb_*.py + dashboard.html），
+// 网关本体是外部导入的纯标准库 Python 项目，本仓库不含它的源码，
 // 这里只负责用 Chaquopy 把 CPython 打进去，外壳用 Kotlin 写。
 //
 // AGP 9 起 Kotlin 编译是内建的（built-in Kotlin）：不再声明

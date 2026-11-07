@@ -44,7 +44,7 @@ import java.util.concurrent.Executors
 /**
  * 主界面 = 原封不动的 PC 面板。
  *
- * 移植策略：PC 版的看板（dashboard.html）本身就是同源静态页 + 一堆 JSON 接口，
+ * 移植策略：导入项目自带的看板（dashboard.html）是同源静态页 + 一堆 JSON 接口，
  * 用 WebView 直接加载 `http://127.0.0.1:<port>/` 就等于「移植了全部界面和交互」，
  * 面板以后加功能，App 不用改。原生只负责三件面板做不到的事：常驻托管、
  * 系统通知、以及文件导入等平台能力。
