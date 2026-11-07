@@ -20,9 +20,16 @@
 | 薄运行时、桥接层、解压 / 切指针 / 重启 | 账号池、API Key、配额、用量数据 |
 | 构建脚本、CI、容器测试 | Docker / 服务器 / 路由器部署脚本 |
 
-容器与网关之间只有一条契约：**一份根目录含 `wb_proxy.py` 与 `dashboard.html` 的项目 ZIP**。
+容器与网关之间只有一条契约：**一份可识别的项目 ZIP**。导入层认两种形态：
+
+| 形态 | 外部项目 | 识别标志 | 面板 / 探活 | 手机上怎么跑 |
+|---|---|---|---|---|
+| Python | `ardeyouxipianyi/workbuddy2api-hub` | `wb_proxy.py` + `dashboard.html` | `/` · `/health` | CPython 本地托管（默认） |
+| Go | `misakano7545/workbuddy2api-panel` | `go.mod` + `cmd/server` | `/panel/` · `/healthz` | 只能远程接入（见下） |
+
 ZIP 来自哪里、里面是什么版本，容器不关心；换网关不需要重装 App，升级 App 也不会动
-已经导入的网关。
+已经导入的网关。两种形态的接入契约集中在 `GatewayProfile.kt` / `GatewayProfile.swift`，
+Python 薄运行时只负责识别，不携带任何网关实现。
 
 ## 两个导入入口
 
@@ -31,9 +38,10 @@ ZIP 来自哪里、里面是什么版本，容器不关心；换网关不需要�
 1. **自动导入（联网下载）** — 首装界面下方按钮，装好之后在右上角菜单叫「自动更新」。
    默认下载 `ardeyouxipianyi/workbuddy2api-hub` 的 `main` 分支快照，首选 gh-proxy
    镜像，失败依次退到第二个镜像、直连 github.com；下载完走与手动导入完全相同的
-   解压 / 切指针 / 重启流程。想换成自己的仓库或分支，改
-   `mobile/android/app/src/main/java/com/onegateway/host/GatewayBridge.kt`
-   里的 `REPO` / `BRANCH` 两个常量即可。
+   解压 / 切指针 / 重启流程。设置里勾「自动更新下载 Go 仓库 ZIP」会改下
+   `misakano7545/workbuddy2api-panel` 的 `main`；想换成自己的仓库或分支，改
+   `GatewayBridge.kt` 的 `REPO` / `BRANCH` 与 `GatewayProfile.kt` 的 `GO_REPO` /
+   `GO_BRANCH` 即可。
 2. **手动导入（选择压缩包）** — 选一份本地 ZIP，离线可用，也能装任意版本或回退旧版。
    菜单里叫「手动更新」。
 
@@ -43,7 +51,28 @@ ZIP 来自哪里、里面是什么版本，容器不关心；换网关不需要�
 
 > iOS 的形态不同：它在**构建时**由 `mobile/ios/scripts/sync-core.sh` 从外部项目 ZIP
 > 拉取核心注入包内，没有运行时导入界面。换源用 `GATEWAY_CORE_ZIP_URL`，离线构建用
-> `GATEWAY_CORE_ZIP` 指一份本地 ZIP。
+> `GATEWAY_CORE_ZIP` 指一份本地 ZIP；喂进 Go 型 ZIP 会给出「请用远程接入」的明确报错。
+
+## 兼容矩阵与平台硬限制
+
+| | Python 型网关 | Go 型网关 |
+|---|---|---|
+| ZIP 识别、版本、默认端口 | ✅ | ✅（端口从 `config.example.json` 的 `listen` 读） |
+| 两个导入入口（手动 / 自动） | ✅ | ✅（自动源可在设置里切） |
+| App 内本地托管 | ✅ 内嵌 CPython | ❌ 平台不允许 |
+| 远程接入（面板 + 探活 + 复制 API 地址） | ✅ | ✅ |
+| 深浅色跟随 | `?sysdark=` + `wb:system-theme` | `wb2api.theme` + `applyTheme()` 注入 |
+| 健康字段 | `accounts` / `accounts_ready` | `total` / `healthy`（503 也算可达） |
+
+Go 型是**单二进制项目**：Android 10+ 禁止从应用私有目录执行未签名 ELF，iOS 只允许
+运行签名进包的代码。所以「兼容」不等于「把 Go 网关塞进手机里跑」，而是：容器能识别
+它的 ZIP、导入后自动切到远程接入、按它的路径与字段显示面板并探活。把网关跑在电脑、
+服务器或本机 Termux，App 里填 `127.0.0.1:7863`（同一台手机）或局域网地址即可。
+
+设置入口：Android「端口设置」、iOS 菜单「远程网关接入…」。可填
+`127.0.0.1:7863`、`192.168.1.5:7863` 或 `https://host:port`；省略端口时按形态补
+默认值（Python 8788 / Go 7863）。远程开关**默认关**，不改原有本地托管行为；打开后
+容器不启动本地进程、不占用前台服务，通知与日志会明确说明网关在别处。
 
 ## 版本
 
@@ -59,8 +88,10 @@ mobile/
 ├── README.md                  # 移动端构建与实现细节
 ├── shared/wb_mobile_runtime.py    # 共享运行时：托管导入项目的 start/stop/status
 ├── android/                   # Kotlin 外壳 + Chaquopy CPython + 薄运行时
+│   └── .../GatewayProfile.kt      # 双形态接入契约（路径/字段/主题/地址）
 └── ios/                       # Swift 外壳 + Python.framework + 构建脚本
-tests/                         # 6 个容器测试套件 + run_all.py
+    └── .../GatewayProfile.swift   # 与 Android 逐字对齐的同一份契约
+tests/                         # 7 个容器测试套件 + run_all.py
 .github/workflows/             # tests / mobile-android / mobile-ios
 ```
 
@@ -84,12 +115,13 @@ cd mobile/ios && xcodegen generate && xcodebuild ...
 ## 测试与验证
 
 ```sh
-python tests/run_all.py              # 跑全部 6 个容器套件
+python tests/run_all.py              # 跑全部 7 个容器套件
 ```
 
-当前 **6 个套件（6 个 Python + 0 个 JS）**：自动导入契约、构建工具链、容器纯度、
-深浅色换肤、minSdk、UI token。三条 CI 工作流：`tests`（Python 3.9 / 3.12 ×
-Ubuntu / Windows）、`mobile-android`、`mobile-ios`。
+当前 **7 个套件（7 个 Python + 0 个 JS）**：自动导入契约、构建工具链、容器纯度、
+深浅色换肤、minSdk、UI token、双形态兼容。三条 CI 工作流：`tests`（Python 3.9 / 3.12 ×
+Ubuntu / Windows）、`mobile-android`、`mobile-ios`；两条移动端流水线也会在编译前
+跑双形态契约套件。加 `WB_LIVE_DUAL_COMPAT=1` 会用两个真实仓库 ZIP 验证识别。
 
 容器纯度测试会直接翻 APK，断言包里没有 `*.py` / `dashboard.html` / `assets/core/`——
 这条边界比功能更容易被悄悄破坏。
@@ -100,4 +132,6 @@ Ubuntu / Windows）、`mobile-android`、`mobile-ios`。
 - iOS 产物是**未签名 IPA**，需自行签名；仓库不含 App 图标。
 - 容器不校验导入包的签名或来源，只做路径安全校验（拒绝 `../` 与绝对路径）。
   请自行确认 ZIP 的来源。
+- 远程接入模式下 App 只做面板与探活，不托管网关进程；账号数据、用量与日志都在
+  运行网关的那一侧，本机的 `data/` 不会被写入。
 - 提交规范见 [`CONTRIBUTING.md`](CONTRIBUTING.md)，其中有面向 AI / 智能体的硬性规则。

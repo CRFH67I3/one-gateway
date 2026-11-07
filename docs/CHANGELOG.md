@@ -5,6 +5,34 @@
 
 ## 未发布 / Unreleased
 
+### 双形态兼容：同一容器同时接 Python 型与 Go 型网关
+
+把容器的接入契约从单一 Python 型扩到两种形态，**两个导入入口与交互保持不变**。
+
+- **导入层**：`wb_hub_env` 同时认 `wb_proxy.py` + `dashboard.html`（Python 型）与
+  `go.mod` + `cmd/server`（Go 型，如 `misakano7545/workbuddy2api-panel`）；返回
+  `kind` / `default_port`（后者从 Go 项目的 `config.example.json` 读 `listen`），
+  未知 ZIP 的报错同时列出两种入口。Python 型的版本读取、解压、purge、start 全链路
+  一步未改。
+- **契约层**：新增 `GatewayProfile.kt` / `GatewayProfile.swift`，统一面板路径
+  （`/` vs `/panel/`）、探活路径（`/health` vs `/healthz`）、健康字段
+  （`accounts`/`accounts_ready` vs `total`/`healthy`）、默认端口、远程地址规范化与
+  主题脚本。Go 的 `/healthz` 回 503 时仍读响应体，算「可达但没号」。
+- **远程接入**：两端新增开关（**默认关**）。打开后不启动本地进程 / 前台服务 /
+  CPython，面板、探活、复制 API 地址、通知、关于页全部指向所填 origin；地址支持
+  回环、局域网 IP 与 https。Go 型 ZIP 导入成功会自动切到该模式并填好
+  `127.0.0.1:7863`（本机 Termux 常见形态）。
+- **双源自动更新**：Android 设置里可切到 Go 仓库的 `main` 快照，下载仍走
+  「镜像优先、直连兜底」，之后复用同一个 `installProject()`；默认仍是 Python 源。
+- **深浅色**：Python 面板保留 `?sysdark=` + `wb:system-theme`；Go 面板在页面就绪与
+  系统切深浅时注入 `wb2api.theme` + `applyTheme()`，两端都不重载页面、不掉登录。
+- **平台限制**：Go 单二进制无法在 App 内执行（Android 10+ 禁止从私有目录 exec
+  未签名 ELF、iOS 只允许签名代码），因此只做「识别 + 远程接入」；容器仍不含任何
+  网关源码或二进制。`sync-core.sh` 遇到 Go ZIP 给出可操作的诊断而非空泛报错。
+- **测试**：新增 `tests/_test_dual_gateway_compat.py`（21 例：两种 ZIP 真调
+  `install()`、三端契约静态比对、iOS 抽取脚本执行、可选真实仓库联网验证），
+  套件数 6 → 7；两条移动端流水线在编译前也跑它。
+
 ### 更名：Proxy Gateway Runtime → OneGateway
 
 按项目目标重新定名：仓库只是装载外部网关的宿主，不含网关实现，名字的主语不该是

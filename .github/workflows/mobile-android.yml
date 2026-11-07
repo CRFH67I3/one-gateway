@@ -62,6 +62,8 @@ jobs:
           # 「自动导入最新版」的接线与解压契约：按钮还在、下载地址首选镜像、
           # ZIP 结构与解压逻辑对得上。纯离线、亚秒级，编译前先把这类低级错误拦掉。
           python tests/_test_android_auto_import.py
+          # 双形态兼容：两种 ZIP 的识别、三端地址/字段契约、Go 型绝不本地执行。
+          python tests/_test_dual_gateway_compat.py
 
       # 固定 debug 签名。
       # AGP 在没有 debug.keystore 时会**现场生成**一对随机密钥：alias

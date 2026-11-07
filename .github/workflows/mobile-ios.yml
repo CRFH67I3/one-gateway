@@ -85,6 +85,8 @@ jobs:
         run: |
           python3 -m compileall -q \
             mobile/shared mobile/ios/OneGateway/PythonBridge
+          # 双形态兼容契约：iOS 的 GatewayProfile 与 Android/Python 端必须对齐。
+          python3 tests/_test_dual_gateway_compat.py
 
       # ~200MB download; cache it so repeat builds skip GitHub Releases.
       - name: Fetch embedded CPython

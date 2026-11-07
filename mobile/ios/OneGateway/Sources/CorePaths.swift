@@ -31,6 +31,9 @@ enum Settings {
     private static let keepAliveKey = "hub.keepAlive"
     private static let liveActivityKey = "hub.liveActivity"
     private static let dynamicIslandKey = "hub.dynamicIsland"
+    private static let remoteKey = "hub.remote"
+    private static let remoteBaseKey = "hub.remoteBase"
+    private static let remoteKindKey = "hub.remoteKind"
 
     /// 旧版本没写过这个键时用调用方给的默认值，而不是 `Bool()` 的 false。
     private static func storedBool(_ key: String, default fallback: Bool) -> Bool {
@@ -67,6 +70,26 @@ enum Settings {
     static var lan: Bool {
         get { UserDefaults.standard.bool(forKey: lanKey) }
         set { UserDefaults.standard.set(newValue, forKey: lanKey) }
+    }
+
+    // MARK: - 远程接入（Go 网关这类无法在 App 内执行的形态）
+
+    /// 打开后不启动本地 CPython 网关，容器只做面板与探活。
+    static var remoteEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: remoteKey) }
+        set { UserDefaults.standard.set(newValue, forKey: remoteKey) }
+    }
+
+    /// 远程网关的 origin（可带 http/https，可省略端口）。
+    static var remoteBase: String {
+        get { UserDefaults.standard.string(forKey: remoteBaseKey) ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: remoteBaseKey) }
+    }
+
+    /// 默认 Go：Python 形态通常直接本地托管，远程多半是另一套实现。
+    static var remoteKind: String {
+        get { UserDefaults.standard.string(forKey: remoteKindKey) ?? GatewayProfile.go }
+        set { UserDefaults.standard.set(newValue, forKey: remoteKindKey) }
     }
 }
 

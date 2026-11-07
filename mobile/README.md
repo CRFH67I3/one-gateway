@@ -28,6 +28,7 @@ mobile/
 │   │   ├── java/com/onegateway/host/
 │   │   │   ├── HubApp.kt            # Application：初始化 CPython
 │   │   │   ├── GatewayBridge.kt     # Kotlin ⇄ Python 通道、项目解压与指针、自动下载
+│   │   │   ├── GatewayProfile.kt    # 双形态接入契约：路径 / 字段 / 主题 / 远程地址
 │   │   │   ├── GatewayService.kt    # 前台服务 + 常驻通知
 │   │   │   ├── MainActivity.kt      # WebView 加载面板 + 原生菜单
 │   │   │   └── Prefs.kt             # 端口 / 局域网 / 自启 / 当前项目
@@ -43,7 +44,8 @@ mobile/
     │   ├── BackgroundKeepAlive.swift # iOS 26 持续后台任务（BGContinuedProcessingTask）
     │   ├── LiveActivityController.swift  # 锁屏/灵动岛实时活动（ActivityKit）
     │   ├── BackgroundSettingsViewController.swift  # 「后台保持」三个开关
-    │   ├── CorePaths.swift          # 沙盒路径 / 外壳开关 / 局域网地址
+    │   ├── CorePaths.swift          # 沙盒路径 / 外壳开关（含远程接入）/ 局域网地址
+    │   ├── GatewayProfile.swift     # 与 Android 对齐的双形态接入契约
     │   ├── OneGateway-Bridging-Header.h  # #include <Python/Python.h>
     │   └── AppDelegate.swift
     ├── Shared/GatewayActivityAttributes.swift  # 主 App 与 Widget 共享的活动定义
@@ -92,6 +94,42 @@ mobile/
 面板同理：`dashboard.html` 是「同源静态页 + JSON 接口」，WebView 直接打开
 `http://127.0.0.1:8788/` 就等于移植了全部界面与交互，面板以后加功能 App 不用改。
 
+## 双形态兼容（Python / Go）
+
+容器认两种外部网关，两个导入入口与交互不变，差异全部收在
+`GatewayProfile.kt`（Android）/ `GatewayProfile.swift`（iOS）里：
+
+| 契约 | Python 型 | Go 型 |
+|---|---|---|
+| 识别 | `wb_proxy.py` | `go.mod` + `cmd/server/main.go`（或 `internal/panel/index.html`） |
+| 面板 / 探活 | `/` · `/health` | `/panel/` · `/healthz` |
+| 健康字段 | `accounts` / `accounts_ready` | `total` / `healthy`；`/healthz` 回 503 仍算可达 |
+| 默认端口 | 8788 | 7863（导入时读 `config.example.json` 的 `listen`） |
+| 主题 | `?sysdark=` + `wb:system-theme` 事件 | 注入 `localStorage['wb2api.theme']` + `applyTheme()` |
+| 本地托管 | ✅ CPython | ❌ 只能远程接入 |
+
+**平台硬限制**：Go 型是单二进制。Android 10+ 不允许从应用私有目录执行未签名 ELF，
+iOS 只允许运行签名进包的代码；把二进制塞进 ZIP 再 exec 在两个平台都走不通。所以
+Go 型 ZIP 只被识别、登记，导入成功后外壳自动切到「远程接入」并把默认端口填成
+`127.0.0.1:7863`（本机 Termux 最常见的形态）；用户只需确认网关实际在哪台设备上跑。
+
+远程接入下：
+
+- Android `GatewayService` 与 iOS `PyBridge` 都不启动本地进程；`fetchHealth` /
+  `refreshHealth` 打远程地址，`/healthz` 的 503 也读 body 取字段（Android 读
+  `errorStream`）；
+- 面板地址、复制的 API 地址、通知与关于页都指向远程 origin；日志页提示去网关那侧看；
+- 深浅色：Android 在 `onPageFinished` 与 `onConfigurationChanged`、iOS 在
+  `didFinish` 与 `traitCollectionDidChange` 各注入一次 Go 主题脚本；Python 面板
+  继续走原来的 `wb:system-theme`，两步都包在 try 里，互不干扰；
+- 设置：Android「端口设置」里的远程开关 / 地址 / 形态 / 自动更新源；iOS 菜单
+  「远程网关接入…」。远程开关**默认关**，原有本地托管行为不变；地址支持
+  `127.0.0.1:7863`、局域网 IP 与 `https://host:port`，省略端口按形态补默认值。
+
+`tests/_test_dual_gateway_compat.py` 用两种同构 ZIP 真调 `install()`，并静态比对
+三端的路径、字段、主题键、状态码与「Go 型绝不本地执行」；iOS 构建脚本的抽取片段
+也被单独执行一遍，确保 Go ZIP 得到的是可操作的诊断而不是一句「找不到 wb_proxy.py」。
+
 ## 两端各自适配了什么
 
 | 主题 | Android | iOS |
@@ -101,9 +139,10 @@ mobile/
 | 控制入口 | 通知栏「停止」、App 内菜单（重启网关 / 端口设置 / 导入凭证 / 复制 API 地址 / 日志 / 关于 / 退出） | App 内菜单（含「后台保持」设置页） |
 | 面板 | 系统 WebView + 下拉刷新 | `WKWebView` |
 | 面板 JS 弹窗 | `WebChromeClient` 把 `alert/confirm/prompt` 接到原生对话框；`target=_blank` 在同一 WebView 打开 | `WKUIDelegate` 提供同样的三个回调 |
-| 深色模式 | 面板「跟随系统」按外壳传进来的 `?sysdark=` 取值（见下），原生外壳走 `values-night` 资源 | `WKWebView` 直接跟随系统外观，不用额外通道 |
+| 深色模式 | 面板「跟随系统」按外壳传进来的 `?sysdark=` 取值（见下），原生外壳走 `values-night` 资源；Go 面板另注入 `wb2api.theme` | `WKWebView` 跟随系统外观；Go 面板在 `didFinish` / 深浅变化时注入 `wb2api.theme` |
+| 双形态接入 | `GatewayProfile.kt` + 设置里的远程开关 / 地址 / 形态 / 更新源 | `GatewayProfile.swift` + 菜单「远程网关接入…」 |
 | 存储 | `filesDir/data`（accounts/usage/catalog/logs） | `Library/Application Support/data` |
-| 明文回环 | `network_security_config` 放行 127.0.0.1 | ATS 例外 + `NSAllowsLocalNetworking` |
+| 明文回环 | `network_security_config` 全局放行（远程 LAN 也能连） | ATS 例外 + `NSAllowsLocalNetworking` + 用户自填地址的明文例外 |
 | HTTPS 根证书 | Android 系统证书目录（`SSL_CERT_DIR`） | 随包 `certifi`（iOS 无系统 CA 路径） |
 | 局域网访问 | 绑 0.0.0.0，通知里给 IP；自动生成 API Key | 同左，另需「本地网络」权限 |
 | 版本号 | Gradle 读 `mobile/VERSION` | CI 读同一份并注入 `MARKETING_VERSION` |
@@ -279,7 +318,8 @@ release 的保留规则在 `app/proguard-rules.pro`：Chaquopy 的 `com.chaquo.p
 APK 是**运行环境**，不是网关本身。装网关只有一件事——把一份仓库代码放进去——
 区别只在代码从哪来，所以菜单里就两个动作：**手动更新**（你选一个 ZIP）与
 **自动更新**（联网下仓库 main）。首次安装与日后升级走的是同两条路，不需要任何
-凭证，也没有「先导入项目」这种前置步骤。
+凭证，也没有「先导入项目」这种前置步骤。导入层同时认 Python 型与 Go 型两种 ZIP
+（见上文「双形态兼容」）；Go 型不能在 App 内本地跑，装好会自动切到远程接入。
 
 **一、自动更新（推荐）**
 
@@ -291,16 +331,21 @@ github.com），下载完走与手动更新完全相同的解压/切指针/重�
 「正在下载…42%（1.1 MB）」这类进度，失败时给出每个地址各自的失败原因。
 
 > 想换成自己的仓库或分支：改 `GatewayBridge.kt` 里的 `REPO` / `BRANCH` 两个常量即可，
-> `PROJECT_ZIP_URLS` 会自动跟着变。
+> `PROJECT_ZIP_URLS` 会自动跟着变；Go 源对应 `GatewayProfile.kt` 的 `GO_REPO` /
+> `GO_BRANCH`。设置里勾「自动更新下载 Go 仓库 ZIP」会把下载源切到另一个仓库，
+> 两个入口与后续解压流程都不变。
 
 **二、手动更新**
 
 1. 在**网关项目**仓库点 **Code → Download ZIP**，把压缩包发到手机（微信/网盘/数据线均可）；
 2. 打开 App → 点「手动更新（选择压缩包）」（或菜单里的「手动更新」）→ 在系统文件
    选择器里选中这个 ZIP；
-3. App 自动解压到 `filesDir/data/projects/<时间戳>/`，找到含 `wb_proxy.py` 的项目根，
-   读出版本号后切换指针并启动网关；
-4. 之后就是熟悉的面板（`http://127.0.0.1:8788/`），账号登录、配额、模型配置与电脑版一致。
+3. App 自动解压到 `filesDir/data/projects/<时间戳>/`，找到可识别的项目根
+   （Python 型看 `wb_proxy.py`，Go 型看 `go.mod` + `cmd/server`），读出版本号、
+   形态与默认端口后切换指针；
+4. Python 型随后启动网关，面板在 `http://127.0.0.1:8788/`；Go 型自动切到
+   「远程接入」，到「端口设置」确认运行中的网关地址（默认填 `127.0.0.1:7863`），
+   面板在 `<地址>/panel/`。
 
 已经装过项目时再点同一个入口，效果就是**原地换一份代码**：解到新目录、成功才切指针，
 旧项目在新项目跑起来之前一直可用。这条路只看 ZIP 里有没有项目根，**不看来源、不要
@@ -313,6 +358,21 @@ github.com），下载完走与手动更新完全相同的解压/切指针/重�
 
 还没装过项目时点「自动更新」也算一次安装（只是文案换成「安装/更新」口径），
 不会被一句「还没有项目」挡回来。
+
+**四、两种形态与远程接入**
+
+导入层识别后把 `kind` 写进外壳配置；`GatewayProfile.kt` 据此给出面板路径、探活
+路径、健康字段与默认端口。「端口设置」里多了四个开关：连接外部网关（默认关）、
+地址、Go 形态、自动更新源。打开远程接入后：
+
+- 不启动前台服务与本地 CPython 网关，通知与日志明确说明网关在别处；
+- 探活打 `<地址>/health`（Python）或 `<地址>/healthz`（Go）；Go 的 503 也读
+  响应体里的 `total` / `healthy`，界面不会误判成「连不上」；
+- WebView 加载 `<地址>/` 或 `<地址>/panel/`，并在页面就绪与系统切深浅时注入
+  Go 面板的主题脚本；Python 面板仍走 `wb:system-theme`；
+- 「复制 API 地址」给出 `<地址>/v1`，而不是本机回环；关于页显示当前形态与地址。
+
+关掉远程开关就回到原来的 Python 本地托管路径，已导入的项目与账号数据都不变。
 
 更新期间覆盖层会显示实时进度（面板还开着，所以进度必须浮在上面）；更新完**不重启进程**，
 Python 侧把旧项目的模块摘掉后直接重新 `start()`，面板重新载一次即可看到新版本。
@@ -329,7 +389,8 @@ Python 侧把旧项目的模块摘掉后直接重新 `start()`，面板重新载
   「后台启动 Activity」（真机日志 `Abort background activity starts from 10237`），
   普通闹钟、精确闹钟、`setAlarmClock` 全试过，用户只会看到 App 在更新后凭空消失。
 - **ZIP 结构不挑**：GitHub 的 `仓库名-分支/` 外层会自动识别；也接受直接把仓库根目录
-  压成的包。没有 `wb_proxy.py` 的包会明确报错，不会留下半个项目。
+  压成的包。两种形态都不认的包会在报错里同时列出 `wb_proxy.py` 与 `go.mod`，
+  不会留下半个项目。
 - **下载先验 ZIP 魔数**：镜像返回 200 不代表拿到的是包（限流页、警告页都是 200），
   所以看前两字节是不是 `PK`，不是就换下一个地址。
 - **不校验签名/来源**：这里导入的是你自己下载的仓库代码，App 只做路径安全校验（拒绝
@@ -422,12 +483,12 @@ open OneGateway.xcodeproj                  # 选自己的 Team 后可真机运�
 
 | 工作流 | 触发 | 产物 |
 |---|---|---|
-| `.github/workflows/tests.yml` | push / PR | 6 个容器套件，Python 3.9 / 3.12 × Ubuntu / Windows |
+| `.github/workflows/tests.yml` | push / PR | 7 个容器套件，Python 3.9 / 3.12 × Ubuntu / Windows |
 | `.github/workflows/mobile-android.yml` | 改动 `mobile/**` | `one-gateway-android`（arm64 / x64 各一份 debug + release） |
 | `.github/workflows/mobile-ios.yml` | 改动 `mobile/**` | `one-gateway-ios`（未签名 IPA） |
 
-两条移动端流水线先做语法门禁（只编译容器桥接层）。Android 断言 **APK 里没有
-网关文件**（`*.py` / `dashboard.html` / `assets/core/`）；iOS 断言
+两条移动端流水线先做语法门禁（只编译容器桥接层 + 跑双形态兼容套件）。Android 断言
+**APK 里没有网关文件**（`*.py` / `dashboard.html` / `assets/core/`）；iOS 断言
 `app/wb_proxy.py`、`app/dashboard.html`、`python/lib/python3.*/os.py` 与
 `Frameworks/Python.framework` 齐备。前者守「容器不带网关」，后者守「外部核心
 确实注入了」。容器版本由 `mobile/VERSION` 统一提供。
@@ -447,7 +508,11 @@ open OneGateway.xcodeproj                  # 选自己的 Team 后可真机运�
 6. **Android 菜单里的「退出」**：会连网关和前台服务一起停掉再关 App（菜单不再单列
    「启动/停止」——只想停网关用通知栏的「停止」按钮，重新打开 App 再点覆盖层的
    「启动网关」即可）。
-7. **旋转屏幕会重建界面（Android）**：清单只放行 `keyboardHidden|uiMode`，旋转时 Activity 重建。
+7. **Go 型网关不能在 App 内本地托管**：Android 10+ 禁止从应用私有目录执行未签名
+   ELF，iOS 只允许运行签名进包的代码。Go 型 ZIP 能被识别、能自动更新、能显示面板
+   与探活，但网关本体必须跑在电脑 / 服务器 / 本机 Termux，由「远程接入」连接。
+   想在本机跑请继续用 Python 型网关。
+8. **旋转屏幕会重建界面（Android）**：清单只放行 `keyboardHidden|uiMode`，旋转时 Activity 重建。
    放行 `orientation|screenSize` 时 Activity 不重建，WebView 会留着上一次的页面缩放，
    横屏右侧约 12% 的按钮（关闭网关、修改密码、添加 API Key）被挤出屏幕；实测
    `reload()` 清不掉这个缩放，只有新建的 WebView 才会按新视口重算。网关跑在前台服务里，

@@ -122,7 +122,12 @@ class MainActivity : Activity() {
         configureWebView()
         swipe.setOnRefreshListener { webView.reload() }
         overlayAction.setOnClickListener {
-            if (GatewayBridge.projectRoot(this) == null) {
+            if (GatewayProfile.isRemote(this)) {
+                // 远程接入下这个按钮是「重试连接」：不启动本地进程，只让轮询
+                // 立刻再探一次外部网关。
+                loadedUrl = null
+                ui.postDelayed(poller, 200)
+            } else if (GatewayBridge.projectRoot(this) == null) {
                 // 没有项目时，这个按钮的语义是「手动更新」而不是「启动」。
                 launchProjectImport()
             } else {
@@ -138,8 +143,10 @@ class MainActivity : Activity() {
         // 界面搭完之后统一刷一次外壳配色，深浅两档都由它决定。
         applyShellColors()
 
-        // 只对「已经导入过项目」的机器自动启动：首次安装应当先看到导入引导。
-        if (Prefs.autoStart(this) && GatewayBridge.projectRoot(this) != null) {
+        // 只对「已经导入过项目且是本地托管」的机器自动启动：首次安装应当先看到
+        // 导入引导；远程接入根本不需要本地进程，交给状态轮询即可。
+        if (Prefs.autoStart(this) && !GatewayProfile.isRemote(this) &&
+            GatewayBridge.projectRoot(this) != null) {
             GatewayService.send(this, GatewayService.ACTION_START)
         }
     }
@@ -202,6 +209,9 @@ class MainActivity : Activity() {
             "window.dispatchEvent(new CustomEvent('wb:system-theme',{detail:{dark:$dark}}))",
             null,
         )
+        // Go 面板不认上面这个事件：它的主题存在 localStorage['wb2api.theme']，
+        // 由 applyTheme() 刷 data-theme。两套脚本互不干扰，Python 面板会忽略后半段。
+        webView.evaluateJavascript(GatewayProfile.themeScript(dark), null)
         // 页面没有重新加载，URL 里的 sysdark 还是旧值。这里同步标记，
         // 否则状态轮询（render）会发现 loadedUrl != panelUrl 而立刻 loadUrl，
         // 等于白换肤——刚保住的登录态照样没了。
@@ -226,6 +236,10 @@ class MainActivity : Activity() {
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 swipe.isRefreshing = false
+                // 页面脚本已就绪，补一次 Go 面板的主题值：WebView 的
+                // prefers-color-scheme 跟的是 App 主题（外壳是 Light），手机切深色
+                // 时它仍报浅色，必须由外壳把系统值直接写进页面。
+                webView.evaluateJavascript(GatewayProfile.themeScript(systemDark()), null)
             }
 
             override fun onReceivedError(
@@ -420,6 +434,9 @@ class MainActivity : Activity() {
             Thread.sleep(300)
             val download = GatewayBridge.downloadProjectZip(
                 this,
+                // 两个导入入口不变；下载哪一份仓库由设置里的「网关源」决定，
+                // 默认仍是 Python 型，切到 Go 源后拿的是另一份 main 快照。
+                urls = GatewayBridge.sourceZipUrls(Prefs.source(this)),
                 onAttempt = { index, count ->
                     ui.post {
                         if (autoImporting) {
@@ -462,7 +479,8 @@ class MainActivity : Activity() {
     /** 自动导入/更新失败后的收尾：恢复按钮与引导文案，让用户能直接再试一次。 */
     private fun finishAutoImport(message: String?) {
         autoImporting = false
-        val hasProject = GatewayBridge.projectRoot(this) != null
+        // 远程接入本来就不导入项目，失败时同样该把覆盖层收起、回到面板重试。
+        val hasProject = GatewayBridge.projectRoot(this) != null || GatewayProfile.isRemote(this)
         overlayAction.isEnabled = true
         overlayAuto.isEnabled = true
         // 自动导入按钮只服务首装：已经装过项目时它不该再占位置（更新走菜单）。
@@ -518,10 +536,17 @@ class MainActivity : Activity() {
                 Toast.LENGTH_LONG,
             ).show()
             finishAutoImport(null)
+            if (result.optString("kind") == GatewayProfile.GO) {
+                // 安装本身是成功的，只是这份代码不能在手机里本地跑：把下一步
+                // 说清楚，别让用户对着「已安装」却看不到面板发懵。
+                Toast.makeText(this, R.string.project_go_remote_hint, Toast.LENGTH_LONG).show()
+            }
             // 置空 loadedUrl：面板要按新版本重新载一次，否则 WebView 里还是
             // 旧项目 render 出来的那一页。
             loadedUrl = null
-            GatewayService.send(this, GatewayService.ACTION_START)
+            if (!GatewayProfile.isRemote(this)) {
+                GatewayService.send(this, GatewayService.ACTION_START)
+            }
             ui.postDelayed(poller, 600)
         }
     }
@@ -549,9 +574,13 @@ class MainActivity : Activity() {
      * 的外壳是 `Theme.Material.Light`，手机切到深色时它仍然报 light，面板里选
      * 「跟随系统」就会一直停在浅色。把系统值直接放进 URL，页面脚本在首帧之前就能
      * 读到，不依赖任何原生注入的时序。
+     *
+     * 面板路径由 [GatewayProfile] 按形态给出：Python 型是 `/`，Go 型是 `/panel/`；
+     * 远程接入时前缀也不是 127.0.0.1，而是用户填的那台设备。`?sysdark=` 对 Go
+     * 面板无害（它不读这个参数），深浅由 themeScript 注入补齐。
      */
     private fun panelUrl(port: Int): String =
-        "http://127.0.0.1:$port/?sysdark=" + if (systemDark()) "1" else "0"
+        GatewayProfile.panelBase(this, port) + "?sysdark=" + (if (systemDark()) "1" else "0")
 
     override fun onBackPressed() {
         if (webView.canGoBack()) webView.goBack() else super.onBackPressed()
@@ -622,8 +651,8 @@ class MainActivity : Activity() {
     }
 
     private fun copyApiBase() {
-        val port = Prefs.port(this)
-        val text = "http://127.0.0.1:$port/v1"
+        // 远程接入时复制的是那台设备的 /v1，不是本机回环——否则客户端填了也连不上。
+        val text = GatewayProfile.apiBase(this, Prefs.port(this))
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("api-base", text))
         Toast.makeText(this, getString(R.string.toast_copied, text), Toast.LENGTH_LONG).show()
@@ -649,6 +678,27 @@ class MainActivity : Activity() {
             text = getString(R.string.settings_autostart)
             isChecked = Prefs.autoStart(this@MainActivity)
         }
+        val remoteSwitch = Switch(this).apply {
+            text = getString(R.string.settings_remote)
+            isChecked = Prefs.remote(this@MainActivity)
+        }
+        val remoteInput = EditText(this).apply {
+            hint = getString(R.string.settings_remote_address)
+            setText(Prefs.remoteBase(this@MainActivity))
+        }
+        val goSwitch = Switch(this).apply {
+            text = getString(R.string.settings_remote_kind)
+            isChecked = Prefs.remoteKind(this@MainActivity) == GatewayProfile.GO
+        }
+        val sourceSwitch = Switch(this).apply {
+            text = getString(R.string.settings_source_go)
+            isChecked = Prefs.source(this@MainActivity) == GatewayProfile.GO
+        }
+        val remoteHint = TextView(this).apply {
+            text = getString(R.string.settings_hint_remote)
+            textSize = 11f
+            setPadding(0, padding / 2, 0, 0)
+        }
         val hint = TextView(this).apply {
             text = getString(R.string.settings_hint)
             textSize = 12f
@@ -658,6 +708,11 @@ class MainActivity : Activity() {
         container.addView(portInput)
         container.addView(lanSwitch)
         container.addView(autoSwitch)
+        container.addView(remoteSwitch)
+        container.addView(remoteInput)
+        container.addView(goSwitch)
+        container.addView(sourceSwitch)
+        container.addView(remoteHint)
         container.addView(hint)
 
         AlertDialog.Builder(this)
@@ -669,13 +724,37 @@ class MainActivity : Activity() {
                     Toast.makeText(this, R.string.settings_bad_port, Toast.LENGTH_LONG).show()
                     return@setPositiveButton
                 }
+                val rawBase = remoteInput.text.toString().trim()
+                val hostPart = rawBase.removePrefix("https://").removePrefix("http://").trimEnd('/')
+                if (remoteSwitch.isChecked && hostPart.isNotBlank() && !HOST_RE.matches(hostPart)) {
+                    Toast.makeText(this, R.string.settings_bad_address, Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+                val newKind = if (goSwitch.isChecked) GatewayProfile.GO else GatewayProfile.PYTHON
+                val normalised = GatewayProfile.normaliseBase(rawBase, newKind)
+                val remoteChanged =
+                    remoteSwitch.isChecked != Prefs.remote(this) ||
+                        normalised != GatewayProfile.normaliseBase(
+                            Prefs.remoteBase(this), Prefs.remoteKind(this)) ||
+                        newKind != Prefs.remoteKind(this) ||
+                        sourceSwitch.isChecked != (Prefs.source(this) == GatewayProfile.GO)
                 val changed = port != Prefs.port(this) || lanSwitch.isChecked != Prefs.lan(this)
                 Prefs.setPort(this, port)
                 Prefs.setLan(this, lanSwitch.isChecked)
                 Prefs.setAutoStart(this, autoSwitch.isChecked)
-                if (changed) {
+                Prefs.setRemote(this, remoteSwitch.isChecked)
+                Prefs.setRemoteBase(this, normalised)
+                Prefs.setRemoteKind(this, newKind)
+                Prefs.setSource(this, if (sourceSwitch.isChecked) GatewayProfile.GO else GatewayProfile.PYTHON)
+                if (changed || remoteChanged) {
+                    // 面板地址变了就要重新载一次；远程模式没有本地进程可重启，
+                    // 只要让轮询立刻按新地址探一次即可。
                     loadedUrl = null
-                    GatewayService.send(this, GatewayService.ACTION_RESTART)
+                    if (Prefs.remote(this)) {
+                        ui.postDelayed(poller, 200)
+                    } else {
+                        GatewayService.send(this, GatewayService.ACTION_RESTART)
+                    }
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
@@ -683,7 +762,12 @@ class MainActivity : Activity() {
     }
 
     private fun showLog() {
-        val text = GatewayBridge.logTail(this, 400).ifBlank { getString(R.string.log_empty) }
+        // 远程接入时网关进程不在本机，日志要看运行网关那一侧。
+        val text = if (GatewayProfile.isRemote(this)) {
+            getString(R.string.log_remote)
+        } else {
+            GatewayBridge.logTail(this, 400).ifBlank { getString(R.string.log_empty) }
+        }
         val view = TextView(this).apply {
             this.text = text
             textSize = 11f
@@ -709,7 +793,16 @@ class MainActivity : Activity() {
         val body = buildString {
             append(getString(R.string.about_app_version, BuildConfig.VERSION_NAME))
             append("\n\n")
-            if (root == null) {
+            append(getString(R.string.about_mode,
+                GatewayProfile.label(GatewayProfile.kind(this@MainActivity)),
+                if (GatewayProfile.isRemote(this@MainActivity)) "远程接入" else "本地托管"))
+            append('\n')
+            append(getString(R.string.about_endpoint,
+                GatewayProfile.baseUrl(this@MainActivity, Prefs.port(this@MainActivity))))
+            append("\n\n")
+            if (root == null && GatewayProfile.isRemote(this@MainActivity)) {
+                append(getString(R.string.about_remote_hint))
+            } else if (root == null) {
                 append(getString(R.string.project_none_hint))
             } else {
                 val info = GatewayBridge.describeProject(this@MainActivity)
@@ -754,20 +847,36 @@ class MainActivity : Activity() {
      */
     private fun fetchHealth(): Health {
         val state = GatewayService.lastStatus
+        // 远程接入没有「自己的运行环境」可问，能不能用只看目标地址通不通。
+        if (GatewayProfile.isRemote(this)) {
+            return probeHealth(
+                GatewayProfile.healthUrl(this, Prefs.port(this)), GatewayProfile.kind(this))
+        }
         if (state == null || !state.optBoolean("running")) {
             return Health(false, 0, 0, state?.optString("error").orEmpty())
         }
-        val port = Prefs.port(this)
-        val url = URL("http://127.0.0.1:$port/health")
-        val connection = url.openConnection() as HttpURLConnection
+        return probeHealth(
+            GatewayProfile.healthUrl(this, Prefs.port(this)), GatewayProfile.kind(this))
+    }
+
+    /**
+     * 按形态探活：Python 型 `GET /health`（accounts / accounts_ready），
+     * Go 型 `GET /healthz`（total / healthy）。后者在池不可服务时回 503，
+     * 响应体仍带数据，要读 errorStream 而不是当成连不上。
+     */
+    private fun probeHealth(urlText: String, kind: String): Health {
+        val connection = URL(urlText).openConnection() as HttpURLConnection
         return try {
             connection.connectTimeout = 1500
             connection.readTimeout = 1500
             connection.requestMethod = "GET"
-            if (connection.responseCode != 200) return Health(false, 0, 0)
-            val body = connection.inputStream.bufferedReader().use { it.readText() }
-            val json = JSONObject(body)
-            Health(true, json.optInt("accounts", 0), json.optInt("accounts_ready", 0))
+            val code = connection.responseCode
+            if (!GatewayProfile.acceptsHealthCode(kind, code)) return Health(false, 0, 0)
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+            val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            val json = if (body.isBlank()) JSONObject() else JSONObject(body)
+            val (accounts, usable) = GatewayProfile.normaliseHealth(kind, json)
+            Health(true, accounts, usable)
         } catch (t: Throwable) {
             Health(false, 0, 0)
         } finally {
@@ -785,7 +894,8 @@ class MainActivity : Activity() {
 
         // 没导入项目时，这个 App 只是一个空壳：不提示「已停止」，而是直接把
         // 「导入压缩包」摆在最显眼的位置——这是首次安装后唯一该做的事。
-        if (GatewayBridge.projectRoot(this) == null) {
+        // 远程接入不需要导入任何项目（网关在别处跑），不适用这段引导。
+        if (GatewayBridge.projectRoot(this) == null && !GatewayProfile.isRemote(this)) {
             statusDot.setBackgroundResource(R.drawable.dot_idle)
             statusText.text = getString(R.string.status_no_project)
             overlay.visibility = View.VISIBLE
@@ -795,13 +905,19 @@ class MainActivity : Activity() {
             overlayAction.isEnabled = true
             return
         }
-        overlayAction.text = getString(R.string.overlay_action)
-        // 项目已导入：自动导入只服务首次安装，装好之后就不再占位置。
+        overlayAction.text = getString(
+            if (GatewayProfile.isRemote(this)) R.string.overlay_retry else R.string.overlay_action)
+        // 项目已导入（或远程接入）：自动导入只服务首次安装，装好之后就不再占位置。
         overlayAuto.visibility = View.GONE
 
         if (health.reachable) {
             statusDot.setBackgroundResource(R.drawable.dot_running)
-            statusText.text = getString(R.string.status_running, port, health.usable, health.accounts)
+            statusText.text = if (GatewayProfile.isRemote(this)) {
+                getString(R.string.status_remote_running,
+                    GatewayProfile.baseUrl(this, port), health.usable, health.accounts)
+            } else {
+                getString(R.string.status_running, port, health.usable, health.accounts)
+            }
             overlay.visibility = View.GONE
             // ?sysdark= 把系统深浅色带给面板：WebView 的 prefers-color-scheme 跟的是
             // App 主题（外壳是 Light），手机切深色它照样报浅色，「跟随系统」就失效了。
@@ -821,14 +937,21 @@ class MainActivity : Activity() {
                 overlay.visibility = View.VISIBLE
                 overlayText.text = getString(R.string.overlay_start_failed, health.error)
             } else {
-                statusText.text = if (GatewayService.active) {
+                statusText.text = if (GatewayProfile.isRemote(this)) {
+                    getString(R.string.status_remote_stopped)
+                } else if (GatewayService.active) {
                     getString(R.string.status_starting)
                 } else {
                     getString(R.string.status_stopped)
                 }
                 if (loadedUrl == null) {
                     overlay.visibility = View.VISIBLE
-                    overlayText.text = getString(R.string.overlay_idle)
+                    overlayText.text = if (GatewayProfile.isRemote(this)) {
+                        getString(R.string.overlay_remote_failed,
+                            GatewayProfile.baseUrl(this, port))
+                    } else {
+                        getString(R.string.overlay_idle)
+                    }
                 }
             }
         }
@@ -836,6 +959,8 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQUEST_PROJECT = 1002
+        /** 远程地址只允许 主机/端口 字符：不给路径、查询串和空白混进 origin。 */
+        private val HOST_RE = Regex("""[A-Za-z0-9._\-\[\]:]+""")
         // WebView 首帧底色 = 面板的 bg（浅色 #f4f6f9 / 深色 #0f1115），
         // 与 @color/page_bg 同值。面板第一帧到达前露出的就是它，两边同色才不闪。
         private const val COLOR_WEB_BG_LIGHT = 0xFFF4F6F9.toInt()

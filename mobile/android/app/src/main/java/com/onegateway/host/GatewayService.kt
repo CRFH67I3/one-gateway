@@ -80,6 +80,18 @@ class GatewayService : Service() {
 
     private fun launch() {
         val context = applicationContext
+        // 远程接入不托管任何本地进程：Go 网关跑在别处（电脑 / 服务器 / Termux），
+        // 容器只负责显示面板与探活，前台服务不应该占着一条常驻通知。
+        if (GatewayProfile.isRemote(context)) {
+            active = false
+            lastStatus = null
+            postNotification(
+                getString(R.string.notif_remote_title),
+                getString(R.string.notif_remote_text,
+                    GatewayProfile.baseUrl(context, Prefs.port(context))),
+            )
+            return
+        }
         // 空壳状态下没什么可启动的：不弹「启动失败」，直接告诉用户下一步该做什么。
         if (GatewayBridge.projectRoot(context) == null) {
             active = false

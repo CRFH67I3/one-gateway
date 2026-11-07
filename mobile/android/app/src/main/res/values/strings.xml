@@ -79,13 +79,32 @@
     <string name="settings_port">监听端口（客户端填这个端口）</string>
     <string name="settings_lan">允许局域网访问（自动生成 API Key）</string>
     <string name="settings_autostart">打开 App 时自动启动网关</string>
-    <string name="settings_hint">修改端口或局域网开关会重启网关。面板默认密码 admin，登录后请立即修改；账号登录、配额与模型配置都在面板里完成，与电脑版完全一致。</string>
+    <string name="settings_hint">修改端口或局域网开关会重启网关；切换接入方式、网关形态或更新源后会重新加载面板。面板默认密码 admin，登录后请立即修改；账号登录、配额与模型配置都在面板里完成，与电脑版完全一致。</string>
     <string name="settings_bad_port">端口需在 1024–65535 之间</string>
+
+    <!-- 双形态兼容：远程接入（Go 网关这类无法在 App 内执行的实现） -->
+    <string name="settings_remote">连接外部网关（不本地托管）</string>
+    <string name="settings_remote_address">地址：127.0.0.1:7863 或 https://host:port</string>
+    <string name="settings_remote_kind">Go 网关（面板 /panel/、探活 /healthz）</string>
+    <string name="settings_source_go">自动更新下载 Go 仓库 ZIP</string>
+    <string name="settings_hint_remote">Go 网关是独立二进制：Android/iOS 都不允许在 App 内执行它。把网关跑在电脑、服务器或本机 Termux，再在这里填地址；容器只做面板与探活。Python 网关仍可本地托管。</string>
+    <string name="settings_bad_address">地址需形如 127.0.0.1:7863 或 192.168.1.5:7863</string>
+    <string name="status_remote_running">远程网关 · %1$s · 账号 %2$d/%3$d</string>
+    <string name="status_remote_stopped">远程网关未连接</string>
+    <string name="overlay_retry">重试连接</string>
+    <string name="overlay_remote_failed">连不上远程网关：%1$s\n\n请确认网关已在目标设备运行、地址与端口正确；Go 网关的面板在 /panel/，导入的源码包只用于识别形态。</string>
+    <string name="notif_remote_title">远程网关接入</string>
+    <string name="notif_remote_text">面板来自 %1$s，本 App 不托管网关进程</string>
+    <string name="log_remote">远程接入模式下没有本地启动日志。\n日志请看运行网关那一侧的控制台。</string>
+    <string name="project_go_remote_hint">已识别 Go 网关源码包：手机里不能直接运行它，已切到远程接入。请在「端口设置 → 连接外部网关」里确认运行中的网关地址。</string>
+    <string name="about_mode">接入方式：%1$s · %2$s</string>
+    <string name="about_endpoint">网关地址：%1$s</string>
+    <string name="about_remote_hint">当前是远程接入，不需要在本机导入网关项目；网关本体运行在填写的设备上。</string>
 
     <!-- 日志 -->
     <string name="log_empty">暂无日志</string>
 
     <!-- 关于与项目信息（合并成一个对话框） -->
     <string name="about_app_version">App 版本：%1$s</string>
-    <string name="about_body">手机上的 WorkBuddy 多账号反向代理网关运行环境：App 只提供 Python 环境与常驻托管，网关本体来自「手动更新」选中的压缩包，或「自动更新」联网下载的仓库 main，与电脑版是同一份代码。账号、配额、模型目录、用量统计全部在设备本地处理，不经过第三方服务器。\n\n面板地址：http://127.0.0.1:端口/</string>
+    <string name="about_body">OneGateway 是网关宿主容器：App 只提供 Python 环境、常驻托管与面板外壳，自身不含网关实现。默认导入 Python 型网关（本地托管），也识别 Go 型网关源码包；Go 单二进制不能在手机 App 内执行，可在「端口设置 → 连接外部网关」里接入已运行的实例。两个更新入口与交互不变。账号、配额、模型目录与用量统计都在网关那一侧处理。</string>
 </resources>

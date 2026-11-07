@@ -35,8 +35,11 @@ final class RootViewController: UIViewController {
     private var lastRunning = false
     private var lastNote = "正在启动"
 
-    private var baseURL: String { "http://127.0.0.1:\(Settings.port)/" }
-    private var apiBase: String { "http://127.0.0.1:\(Settings.port)/v1" }
+    /// 面板与 API 地址统一由 GatewayProfile 按形态给出：
+    /// 本地 Python 是 `/` + /health，远程 Go 是 `/panel/` + /healthz。
+    private var baseURL: String { GatewayProfile.panelBase }
+    private var apiBase: String { GatewayProfile.apiBase }
+    private var systemDark: Bool { traitCollection.userInterfaceStyle == .dark }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -45,6 +48,17 @@ final class RootViewController: UIViewController {
         wireBackgroundKeepAlive()
         startGateway()
         startPolling()
+    }
+
+    /// 系统深浅变化：外壳由 UIKit 自动换色，页面里的两套主题脚本得各自补一次。
+    /// WKWebView 的 prefers-color-scheme 不总跟系统走，所以 Go 面板靠注入同步。
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        guard traitCollection.userInterfaceStyle != previousTraitCollection?.userInterfaceStyle else {
+            return
+        }
+        webView.evaluateJavaScript(
+            GatewayProfile.themeScript(dark: systemDark), completionHandler: nil)
     }
 
     /// 持续后台任务的状态变化：任务起来了就取消「20 秒后自断监听」的保底逻辑，
@@ -220,6 +234,11 @@ final class RootViewController: UIViewController {
 
     /// 从后台回来、或网关确认躺了时恢复监听（`start` 本身是幂等的）。
     private func resumeGateway() {
+        if GatewayProfile.remote {
+            // 远程网关不会因为我们切到后台就停，回来探一次即可，别去调 PyBridge。
+            refreshHealth()
+            return
+        }
         spinner.startAnimating()
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
@@ -239,6 +258,8 @@ final class RootViewController: UIViewController {
     }
 
     private func pauseGateway() {
+        // 远程网关不在本机，没有监听可停；后台时保持现状，回来重新探活即可。
+        guard !GatewayProfile.remote else { return }
         // 已经回到前台就别再停了：后台计时器/后台任务到期通知可能晚到一步。
         guard bootstrapped, !isForeground else { return }
         lastRunning = false
@@ -275,7 +296,14 @@ final class RootViewController: UIViewController {
 
     private func startGateway() {
         spinner.startAnimating()
-        Diagnostics.shared.note("startGateway")
+        Diagnostics.shared.note("startGateway remote=\(GatewayProfile.remote)")
+        // 远程接入没有本地进程，连 CPython bootstrap 都不必做：网关跑在别处，
+        // 健康轮询会直接驱动面板加载。bootstrapped 置位是为了回前台时走探活。
+        if GatewayProfile.remote {
+            bootstrapped = true
+            refreshHealth()
+            return
+        }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             do {
@@ -296,6 +324,12 @@ final class RootViewController: UIViewController {
     }
 
     private func restartGateway(port: Int, lan: Bool) {
+        if GatewayProfile.remote {
+            // 远程模式下改端口只影响「本机托管」那一侧；这里只需按当前地址重探一次。
+            loadedURL = nil
+            refreshHealth()
+            return
+        }
         spinner.startAnimating()
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
@@ -352,13 +386,16 @@ final class RootViewController: UIViewController {
     }
 
     private func refreshHealth() {
-        guard let url = URL(string: "http://127.0.0.1:\(Settings.port)/health") else { return }
+        // 两种形态的探活路径不同（/health vs /healthz），地址也可能是远程设备。
+        guard let url = URL(string: GatewayProfile.healthURL) else { return }
         var request = URLRequest(url: url)
         request.timeoutInterval = 2
-        URLSession.shared.dataTask(with: request) { [weak self] data, _, _ in
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
             guard let self else { return }
             var parsed: [String: Any]?
-            if let data,
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            // Go 网关在池不可服务时回 503，但响应体仍带 total/healthy，算可达。
+            if let data, GatewayProfile.acceptsHealthCode(code),
                let object = try? JSONSerialization.jsonObject(with: data) {
                 parsed = object as? [String: Any]
             }
@@ -377,7 +414,9 @@ final class RootViewController: UIViewController {
             }
             // 连续三次都连不上，说明监听真的没了（不是偶发超时）：自己拉起来，
             // 别让用户对着「正在恢复网关…」干等到切后台。
-            if healthFailures == 3, isForeground, bootstrapped, lastRunning {
+            // 远程网关没有本地进程可拉起，重试只会白跑一次 PyBridge。
+            if healthFailures == 3, isForeground, bootstrapped, lastRunning,
+               !GatewayProfile.remote {
                 Diagnostics.shared.note("health failed 3x, restarting gateway")
                 lastRunning = false
                 resumeGateway()
@@ -386,10 +425,10 @@ final class RootViewController: UIViewController {
         }
         healthFailures = 0
         statusDot.backgroundColor = .systemGreen
-        let port = Settings.port
-        let accounts = json["accounts"] as? Int ?? 0
-        let usable = json["accounts_ready"] as? Int ?? 0
-        statusLabel.text = "运行中 · 127.0.0.1:\(port) · 账号 \(usable)/\(accounts)"
+        // Python /health 用 accounts/accounts_ready，Go /healthz 用 total/healthy。
+        let (accounts, usable) = GatewayProfile.normaliseHealth(json)
+        let endpoint = GatewayProfile.remote ? GatewayProfile.base : "127.0.0.1:\(Settings.port)"
+        statusLabel.text = "运行中 · \(endpoint) · 账号 \(usable)/\(accounts)"
         lastAccounts = accounts
         lastUsable = usable
         lastRunning = true
@@ -421,13 +460,22 @@ final class RootViewController: UIViewController {
         })
         sheet.addAction(UIAlertAction(title: "复制 API 地址", style: .default) { [weak self] _ in
             guard let self else { return }
-            let lan = Settings.lan ? (NetworkAddress.localIPv4() ?? "127.0.0.1") : "127.0.0.1"
-            let text = "http://\(lan):\(Settings.port)/v1"
+            let text: String
+            if GatewayProfile.remote {
+                // 远程网关的 /v1 在另一台设备上，复制本机回环没有意义。
+                text = GatewayProfile.apiBase
+            } else {
+                let lan = Settings.lan ? (NetworkAddress.localIPv4() ?? "127.0.0.1") : "127.0.0.1"
+                text = "http://\(lan):\(Settings.port)/v1"
+            }
             UIPasteboard.general.string = text
             self.toast("已复制：\(text)")
         })
         sheet.addAction(UIAlertAction(title: "修改端口", style: .default) { [weak self] _ in
             self?.askPort()
+        })
+        sheet.addAction(UIAlertAction(title: "远程网关接入…", style: .default) { [weak self] _ in
+            self?.showRemoteSettings()
         })
         let lanTitle = Settings.lan ? "关闭局域网访问" : "开启局域网访问"
         sheet.addAction(UIAlertAction(title: lanTitle, style: .default) { [weak self] _ in
@@ -485,7 +533,79 @@ final class RootViewController: UIViewController {
         present(alert, animated: true)
     }
 
+    /// 远程接入设置：一个地址输入框 + 三个动作，覆盖两种形态与「切回本地」。
+    ///
+    /// iOS 只允许运行签名进包的代码，Go 单二进制不可能在 App 内执行，所以这类
+    /// 网关只能远程接入；Python 网关既能本地托管，也能这样接到别的设备上。
+    private func showRemoteSettings() {
+        let alert = UIAlertController(
+            title: "远程网关接入",
+            message: "Go 单二进制无法在 App 内执行：把网关跑在电脑、服务器或同一网络的设备上，填它的地址。Python 网关也可以这样接入。\n\n留空时按形态用默认端口（Go 7863 / Python 8788）。",
+            preferredStyle: .alert)
+        alert.addTextField { field in
+            field.placeholder = "127.0.0.1:7863"
+            field.text = Settings.remoteBase
+            field.keyboardType = .URL
+            field.autocapitalizationType = .none
+            field.autocorrectionType = .no
+        }
+        alert.addAction(UIAlertAction(title: "连接 Go 网关", style: .default) { [weak self, weak alert] _ in
+            self?.connectRemote(raw: alert?.textFields?.first?.text ?? "",
+                                kind: GatewayProfile.go)
+        })
+        alert.addAction(UIAlertAction(title: "连接 Python 网关", style: .default) { [weak self, weak alert] _ in
+            self?.connectRemote(raw: alert?.textFields?.first?.text ?? "",
+                                kind: GatewayProfile.python)
+        })
+        alert.addAction(UIAlertAction(title: "切回本地托管", style: .default) { [weak self] _ in
+            guard let self else { return }
+            Settings.remoteEnabled = false
+            self.bootstrapped = false
+            self.loadedURL = nil
+            self.healthFailures = 0
+            self.startGateway()
+            self.toastLater("已切回本地 Python 网关")
+        })
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel, handler: nil))
+        present(alert, animated: true)
+    }
+
+    private func connectRemote(raw: String, kind: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let allowed = CharacterSet(charactersIn:
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-[]:/")
+        if !trimmed.isEmpty, trimmed.rangeOfCharacter(from: allowed.inverted) != nil {
+            toastLater("地址需形如 127.0.0.1:7863 或 https://host:port")
+            return
+        }
+        Settings.remoteBase = GatewayProfile.normaliseBase(trimmed, forKind: kind)
+        Settings.remoteKind = kind
+        Settings.remoteEnabled = true
+        loadedURL = nil
+        healthFailures = 0
+        bootstrapped = true
+        refreshHealth()
+        toastLater("已接入 \(GatewayProfile.base)")
+    }
+
+    /// 设置弹窗自己正在退场，立刻再 present 一个 toast 会撞上转场动画。
+    private func toastLater(_ text: String) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            self?.toast(text)
+        }
+    }
+
     private func showLog() {
+        // 远程接入时网关进程不在本机，日志要看运行网关那一侧。
+        if GatewayProfile.remote {
+            let alert = UIAlertController(
+                title: "启动日志",
+                message: "远程接入模式下没有本地启动日志，请看运行网关那一侧的控制台。",
+                preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "好", style: .default, handler: nil))
+            present(alert, animated: true)
+            return
+        }
         let payload = self.payload()
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             var request = payload
@@ -515,14 +635,18 @@ final class RootViewController: UIViewController {
 
     private func showAbout() {
         let version = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "?"
+        let mode = GatewayProfile.remote ? "远程接入" : "本地托管"
         let message = """
         版本 \(version)
 
-        手机上的 WorkBuddy 多账号反向代理网关。网关本体与电脑版是同一套 Python 代码，
-        账号、配额、模型目录与用量统计都在本机处理，不经过第三方服务器。
+        OneGateway 是网关宿主容器：App 只提供 CPython 环境、常驻托管与面板外壳，
+        自身不含网关实现。当前为 \(GatewayProfile.label(GatewayProfile.kind)) · \(mode)；
+        Go 单二进制不能在 iOS App 内执行，只能远程接入已运行的实例。账号、配额与
+        用量统计都在网关那一侧处理，不经过第三方服务器。
 
         面板：\(baseURL)
         API：\(apiBase)
+        网关地址：\(GatewayProfile.base)
 
         提示：iOS 26 起可用「持续后台处理」让网关在后台继续监听（系统会在锁屏和
         灵动岛显示进度卡片）；也可以在「后台保持」里打开自己的锁屏/灵动岛实时活动。
@@ -622,6 +746,10 @@ extension RootViewController: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         Diagnostics.shared.note("panel loaded")
+        // 页面脚本已就绪：把系统深浅写进 Go 面板的 localStorage 与 data-theme。
+        // Python 面板不认这套变量，注入会安静地失败（每一步都包在 try 里）。
+        webView.evaluateJavaScript(
+            GatewayProfile.themeScript(dark: systemDark), completionHandler: nil)
     }
 
     func webView(

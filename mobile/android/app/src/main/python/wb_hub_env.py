@@ -10,6 +10,18 @@
 bootstrap、serve_forever）仍与导入项目的 `wb_proxy.main()` 逐步对齐，业务逻辑一行
 都不在这里——这里只做「解压、找项目根、把导入的网关跑起来」。
 
+导入层认两种外部网关，见 [KIND_PYTHON] / [KIND_GO]：
+
+* Python 型（wb_proxy.py + dashboard.html）：能在 App 内本地托管，走原来的
+  import/start 流程，一步没改；
+* Go 型（go.mod + cmd/server，如 workbuddy2api-panel）：只识别、只登记，不在
+  App 里执行。Android 10+ 不允许从应用私有目录 exec 未签名的 ELF，iOS 更彻底
+  ——只允许运行签名进包的代码。这类网关由外壳的「远程接入」连到已经跑着的
+  实例（电脑 / 服务器 / 本机 Termux），容器只负责显示面板与探活。
+
+这里的职责到「认出来是哪一种」为止；面板路径、探活字段、主题脚本、地址规范化
+都由外壳的 GatewayProfile 决定，免得一个契约散在 Python/Kotlin/Swift 三处各自漂移。
+
 数据目录（accounts/ usage/ catalog/ logs/）始终落在 App 沙盒里，与项目目录
 分开：换一份 ZIP 覆盖导入，已登录的账号不会丢。
 """
@@ -29,6 +41,19 @@ import zipfile
 MARKER = "wb_proxy.py"
 PANEL = "dashboard.html"
 LOG_NAME = "gateway.log"
+
+#: 第二类网关的识别标志。Go 单二进制项目（cmd/server + internal/panel）没有
+#: Python 入口，靠 go.mod + 服务端入口 + 面板页三者判定，避免把任意一个 Go
+#: 仓库都当成网关装进来。
+GO_MARKER = "go.mod"
+GO_SERVER = "cmd/server/main.go"
+GO_PANEL = "internal/panel/index.html"
+GO_CONFIG = "config.example.json"
+KIND_PYTHON = "python"
+KIND_GO = "go"
+#: 两套网关各自的默认监听端口；Go 那份从 config.example.json 的 listen 读。
+DEFAULT_PORT_PYTHON = 8788
+DEFAULT_PORT_GO = 7863
 
 _STATE_LOCK = threading.RLock()
 _SERVER = None
@@ -101,14 +126,54 @@ def _prune_sys_path(core, projects_dir):
     sys.path[:] = kept
 
 
-def _find_root(base):
-    """在解压目录里找项目根。
+def _kind_at(root):
+    """目录本身是不是某一种网关的项目根；不是就返回空串。"""
+    if os.path.isfile(os.path.join(root, MARKER)):
+        return KIND_PYTHON
+    if (os.path.isfile(os.path.join(root, GO_MARKER))
+            and (os.path.isfile(os.path.join(root, GO_SERVER))
+                 or os.path.isfile(os.path.join(root, GO_PANEL)))):
+        return KIND_GO
+    return ""
 
-    GitHub 的 Download ZIP 会多套一层 `workbuddy2api-hub-main/`，直接解压出来
-    的目录本身不含 wb_proxy.py，所以要往下探一层（也只探一层：再深就不是
-    仓库结构了，多半是用户压错了东西）。
+
+def _go_port(root):
+    """从 config.example.json 的 listen 读端口（127.0.0.1:7863 → 7863）。
+
+    这份配置是 Go 项目自带的契约，不写死在这里：上游换端口，导入时自动跟着变；
+    读不到就退回 7863，不让一份缺文件的包把导入卡住。
     """
-    if os.path.isfile(os.path.join(base, MARKER)):
+    try:
+        with open(os.path.join(root, GO_CONFIG), "r", encoding="utf-8", errors="replace") as fh:
+            listen = json.load(fh).get("listen", "")
+        port = int(str(listen).rsplit(":", 1)[-1])
+        if 1 <= port <= 65535:
+            return port
+    except Exception:
+        pass
+    return DEFAULT_PORT_GO
+
+
+def _go_version(root):
+    """Go 源码包没有 server_version 那样的稳定版本号，用模块名当可辨认标识。"""
+    try:
+        with open(os.path.join(root, GO_MARKER), "r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if line.startswith("module "):
+                    return line.strip().split("/")[-1]
+    except Exception:
+        pass
+    return ""
+
+
+def _find_root(base):
+    """在解压目录里找项目根（两种形态都认）。
+
+    GitHub 的 Download ZIP 会多套一层 `<repo>-main/`，直接解压出来的目录本身
+    不含入口文件，所以要往下探一层（也只探一层：再深就不是仓库结构了，多半是
+    用户压错了东西）。
+    """
+    if _kind_at(base):
         return base
     try:
         entries = sorted(os.listdir(base))
@@ -116,31 +181,40 @@ def _find_root(base):
         return ""
     for name in entries:
         candidate = os.path.join(base, name)
-        if os.path.isdir(candidate) and os.path.isfile(os.path.join(candidate, MARKER)):
+        if os.path.isdir(candidate) and _kind_at(candidate):
             return candidate
     return ""
 
 
 def project_info(root):
-    """读导入项目自身的版本号，顺带自检面板。"""
+    """读导入项目自身的版本号、形态与默认端口，顺带自检面板。"""
     root = os.path.abspath(root or "")
-    entry = os.path.join(root, MARKER)
-    if not os.path.isfile(entry):
-        return {"ok": False, "error": "目录里没有 %s，看起来不是网关项目" % MARKER}
+    kind = _kind_at(root)
+    if not kind:
+        return {"ok": False,
+                "error": "目录里既没有 %s 也没有 %s + %s，看起来不是网关项目"
+                         % (MARKER, GO_MARKER, GO_SERVER)}
     version = ""
-    try:
-        # wb_proxy.py 有两万多行，server_version 在文件靠后的位置：逐行扫，
-        # 命中就停，别把整个文件读进内存（手机上内存比磁盘紧张）。
-        with open(entry, "r", encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                if "server_version" not in line:
-                    continue
-                found = re.search(r'server_version\s*=\s*"wb-proxy/([0-9][0-9.]*)"', line)
-                if found:
-                    version = found.group(1)
-                    break
-    except Exception:
-        pass
+    has_panel = False
+    if kind == KIND_PYTHON:
+        entry = os.path.join(root, MARKER)
+        try:
+            # wb_proxy.py 有两万多行，server_version 在文件靠后的位置：逐行扫，
+            # 命中就停，别把整个文件读进内存（手机上内存比磁盘紧张）。
+            with open(entry, "r", encoding="utf-8", errors="replace") as fh:
+                for line in fh:
+                    if "server_version" not in line:
+                        continue
+                    found = re.search(r'server_version\s*=\s*"wb-proxy/([0-9][0-9.]*)"', line)
+                    if found:
+                        version = found.group(1)
+                        break
+        except Exception:
+            pass
+        has_panel = os.path.isfile(os.path.join(root, PANEL))
+    else:
+        version = _go_version(root)
+        has_panel = os.path.isfile(os.path.join(root, GO_PANEL))
     try:
         files = len(os.listdir(root))
     except OSError:
@@ -148,9 +222,11 @@ def project_info(root):
     return {
         "ok": True,
         "root": root,
+        "kind": kind,
         "version": version,
-        "has_panel": os.path.isfile(os.path.join(root, PANEL)),
+        "has_panel": has_panel,
         "files": files,
+        "default_port": DEFAULT_PORT_PYTHON if kind == KIND_PYTHON else _go_port(root),
     }
 
 
@@ -216,7 +292,9 @@ def install(zip_path, projects_dir):
     if not root:
         shutil.rmtree(dest, ignore_errors=True)
         return {"ok": False,
-                "error": "压缩包里没有 %s；请导入从仓库 Download ZIP 得到的原包" % MARKER}
+                "error": "压缩包里没有可识别的网关项目（Python 型需要 %s；"
+                         "Go 型需要 %s + %s）；请导入仓库 Download ZIP 的原包"
+                         % (MARKER, GO_MARKER, GO_SERVER)}
 
     info = project_info(root)
     if not info.get("ok"):
@@ -418,6 +496,14 @@ def start(project, data, port, lan):
             info = project_info(project)
             if not info.get("ok"):
                 _ERROR = info.get("error") or "网关项目不可用"
+                return _dump(_status_locked())
+            if info.get("kind") != KIND_PYTHON:
+                # 防呆：Go 型项目只被识别、不被本地执行。外壳导入它时会自动切到
+                # 「远程接入」；万一有人绕过外壳直接调 start()，这里要给出能照做的
+                # 提示，而不是让 import wb_proxy 抛一个看不懂的 ModuleNotFoundError。
+                _ERROR = ("导入的是 Go 网关源码包，App 内无法本地运行"
+                          "（系统不允许执行未签名的可执行文件）。请在设置里打开"
+                          "「远程接入」，填已经跑起来的网关地址")
                 return _dump(_status_locked())
             # 项目换了（更新后重新 start）必须重新 configure：否则 sys.path 里
             # 还挂着旧项目目录，import 出来的仍是旧代码；顺带把 _BOOTED 复位，
