@@ -164,7 +164,7 @@ exec 的文件路径。iOS 的 `prepare-go-bridge.py` 对上游 CLI 做五处**�
   分开，未设置时回落到后者，保持「导入 Go ZIP 就切到 Go」的老行为）。地址支持
   `127.0.0.1:7863`、局域网 IP 与 `https://host:port`，省略端口按形态补默认值。
 
-`tests/_test_dual_gateway_compat.py`（39 例）用两种同构 ZIP 真调 `install()`，
+`tests/_test_dual_gateway_compat.py`（41 例）用两种同构 ZIP 真调 `install()`，
 静态比对三端的路径、字段、主题键、状态码与「下载的可执行代码绝不进运行时」；
 还会真跑一遍 `prepare-go-bridge.py` 的源码变换，并单独执行 iOS 抽取脚本，
 确保 Go ZIP 得到的是可操作的诊断。

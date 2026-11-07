@@ -139,15 +139,34 @@ object GatewayBridge {
     private fun localGo(context: Context): Boolean = GatewayProfile.isLocalGo(context)
 
     fun start(context: Context, port: Int, lan: Boolean): JSONObject {
-        if (localGo(context)) return GoGateway.start(context, port, lan)
+        // 启动前把另一侧停干净：形态切换（或异常退出）可能留下残留进程占着
+        // 端口，新形态一绑就「端口被占用」。两侧停止都是幂等的，多调无害。
+        if (localGo(context)) {
+            stopPython(context)
+            return GoGateway.start(context, port, lan)
+        }
+        GoGateway.stop(context)
         val root = projectRoot(context) ?: return notInstalled()
         return invoke("start", root.absolutePath, dataDir(context).absolutePath, port, lan)
     }
 
     fun stop(context: Context): JSONObject {
-        if (localGo(context)) return GoGateway.stop(context)
-        val root = projectRoot(context) ?: return notInstalled()
-        return invoke("stop", root.absolutePath, dataDir(context).absolutePath)
+        // 两侧都停：切换形态时旧形态的进程必须被清掉，否则它还占着端口。
+        // 返回值仍按当前形态给，调用方语义不变。
+        val goState = GoGateway.stop(context)
+        val pyState = stopPython(context)
+        return if (localGo(context)) goState else (pyState ?: notInstalled())
+    }
+
+    /** 停掉已导入的 Python 网关（没有导入过就什么都不做，返回 null）。 */
+    private fun stopPython(context: Context): JSONObject? {
+        val root = projectRoot(context) ?: return null
+        return try {
+            invoke("stop", root.absolutePath, dataDir(context).absolutePath)
+        } catch (_: Throwable) {
+            // Python 运行时还没就绪或已崩：停止是尽力而为，不阻塞主流程。
+            null
+        }
     }
 
     fun status(context: Context): JSONObject {

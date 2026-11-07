@@ -158,7 +158,44 @@ object GoGateway {
                 // 已经退出的进程再 destroy 会抛异常，忽略即可。
             }
         }
+        killOrphanLibgateway()
         return state(false, "")
+    }
+
+    /**
+     * 清理游离的 libgateway.so 子进程。App 进程被系统/用户整杀再重启后，
+     * [process] 引用随旧进程一起消失，残留的 Go 子进程成了孤儿——它还占着
+     * 网关端口，新实例绑不上就会一直报「端口被占用」。子进程与 App 同 uid，
+     * kill 自己 uid 的进程不需要 root。清理失败不阻塞停止流程。
+     */
+    private fun killOrphanLibgateway() {
+        try {
+            for (entry in File("/proc").listFiles() ?: emptyArray()) {
+                val pid = entry.name.toIntOrNull() ?: continue
+                val cmdline = try {
+                    File(entry, "cmdline").readText().trim('\u0000', ' ', '\n', '\t')
+                } catch (_: Throwable) {
+                    continue
+                }
+                if (!cmdline.endsWith(LIB_NAME)) continue
+                // 只杀自己 uid 的，避免越权；读不到 status 就宁可放过。
+                val uid = try {
+                    File(entry, "status").readLines()
+                        .firstOrNull { it.startsWith("Uid:") }
+                        ?.split(Regex("\\s+"))?.getOrNull(1)?.toIntOrNull()
+                } catch (_: Throwable) {
+                    null
+                } ?: continue
+                if (uid != android.os.Process.myUid()) continue
+                try {
+                    android.os.Process.sendSignal(pid, android.os.Process.SIGNAL_KILL)
+                } catch (_: Throwable) {
+                    // 单个进程杀不掉就跳过，不影响其他清理。
+                }
+            }
+        } catch (_: Throwable) {
+            // /proc 不可读等极端场景：放弃清理，交由用户 force-stop 兜底。
+        }
     }
 
     fun status(context: Context): JSONObject {

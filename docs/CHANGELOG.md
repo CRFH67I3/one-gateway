@@ -41,6 +41,13 @@
   挂在「尚未导入网关项目」覆盖层上。新增 `MainActivity.hasLocalRuntime()`，把
   「远程接入 / 本机 Go / 已导入 Python 项目」统一视为有效运行时，覆盖层按钮、
   自启动、`render()` 状态栏与 `finishAutoImport()` 四处一起改。
+- **真机实测修掉两处形态切换缺陷**：① `GatewayBridge.stop()` 原来只按「当前
+  形态」分流，切换形态时旧形态的进程没人停——Python 残留占着 8788，Go 一绑
+  就退出并报「端口被占用」。现在 `stop()` 两侧都停，`start()` 之前也会防御性
+  停掉对侧（两侧停止都幂等）；② App 进程被整杀重启后 `GoGateway.process`
+  引用随旧进程丢失，残留的 `libgateway.so` 成了孤儿继续占端口。`stop()` 现在
+  会扫 `/proc` 找 cmdline 以 `libgateway.so` 结尾、且 uid 等于自己的残留进程
+  补刀（不做越权清理），单进程杀不掉不影响整体收尾。
 - **CI 首轮实测修掉两处**：① `android/amd64` 报
   `requires external (cgo) linking, but cgo is not enabled`——Go 内部链接器不给
   这个 ABI 产 PIE，x86_64 改用 runner 自带的 Android NDK clang +

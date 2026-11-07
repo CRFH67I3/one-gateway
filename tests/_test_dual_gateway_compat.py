@@ -404,6 +404,29 @@ class LocalGoRuntimeTests(unittest.TestCase):
                       "else if (!hasLocalRuntime())"):
             self.assertIn(token, main)
 
+    def test_kind_switch_stops_the_previous_runtime(self):
+        # 真机实测：切形态时 GatewayBridge.stop 只按「新形态」分流，旧形态的
+        # 进程没人停——Python 残留占着端口，Go 一绑就「端口被占用」退出；
+        # 反向切换同理会留下 Go 孤儿。stop 必须两侧都停，start 之前也要
+        # 防御性停掉对侧。
+        self.assertIn("val goState = GoGateway.stop(context)", self.bridge)
+        self.assertIn("val pyState = stopPython(context)", self.bridge)
+        self.assertIn("private fun stopPython(context: Context): JSONObject?", self.bridge)
+        start_body = self.bridge[self.bridge.index("fun start("):]
+        start_body = start_body[:start_body.index("invoke(\"start\"")]
+        self.assertIn("stopPython(context)", start_body)
+        self.assertIn("GoGateway.stop(context)", start_body)
+
+    def test_orphan_go_children_are_cleaned_up(self):
+        # App 进程被整杀重启后 process 引用丢失，残留的 libgateway.so 成了
+        # 孤儿还占着端口，stop 里 destroy 不到它。按 /proc 扫描同 uid 残留
+        # 补刀，且只杀自己 uid 的，不做越权清理。
+        self.assertIn("killOrphanLibgateway()", self.go)
+        self.assertIn('File("/proc")', self.go)
+        self.assertIn("endsWith(LIB_NAME)", self.go)
+        self.assertIn("uid != android.os.Process.myUid()", self.go)
+        self.assertIn("android.os.Process.sendSignal", self.go)
+
 
 class IosSyncCoreTests(unittest.TestCase):
     """iOS 构建脚本里的真实抽取逻辑：Python 核心照旧，Go 包给明确诊断。"""
