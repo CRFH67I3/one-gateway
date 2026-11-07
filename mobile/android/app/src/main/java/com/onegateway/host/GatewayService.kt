@@ -29,6 +29,15 @@ class GatewayService : Service() {
         const val ACTION_STOP = "com.onegateway.host.action.STOP"
         const val ACTION_RESTART = "com.onegateway.host.action.RESTART"
 
+        /**
+         * 只重挂常驻通知，不碰 Python 进程。
+         *
+         * 通知权限是运行时权限：服务先 startForeground、用户后授权时，那一次通知
+         * 早被系统按「无权通知」丢掉，之后不会自动补发——于是进程在跑、通知栏却
+         * 空着，ROM 也更容易把它当普通后台应用处理。授权回调发这个动作补一刀。
+         */
+        const val ACTION_REFRESH = "com.onegateway.host.action.REFRESH"
+
         private const val CHANNEL_ID = "gateway"
         private const val NOTIFICATION_ID = 8788
 
@@ -39,6 +48,20 @@ class GatewayService : Service() {
 
         @Volatile
         var lastStatus: JSONObject? = null
+
+        /** 服务实例是否还活着；UI 靠它决定能不能发「补发通知」这类轻动作。 */
+        @Volatile
+        var alive: Boolean = false
+            private set
+
+        /** 最近一次通知的标题与正文；授权后补发时原样重挂，避免把占位文案盖回去。 */
+        @Volatile
+        var lastTitle: String? = null
+            private set
+
+        @Volatile
+        var lastText: String? = null
+            private set
 
         fun send(context: Context, action: String) {
             val intent = Intent(context, GatewayService::class.java).setAction(action)
@@ -55,10 +78,20 @@ class GatewayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        alive = true
         createChannel()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // 只是补发通知：沿用上一次的标题与正文重挂，别把占位文案盖回去，也别重启进程。
+        if (intent?.action == ACTION_REFRESH) {
+            startForegroundSafe(
+                lastText ?: getString(R.string.notif_starting),
+                lastTitle ?: getString(R.string.notif_title),
+            )
+            return START_STICKY
+        }
+
         // 前台服务必须在 5 秒内 startForeground，否则系统直接 ANR 掉；Python 那边
         // 首次 bootstrap 要扫账号、拉目录，所以先把占位通知挂上再说。
         startForegroundSafe(getString(R.string.notif_starting))
@@ -131,6 +164,7 @@ class GatewayService : Service() {
 
     override fun onDestroy() {
         active = false
+        alive = false
         worker.execute { GatewayBridge.stop(applicationContext) }
         worker.shutdown()
         super.onDestroy()
@@ -168,8 +202,11 @@ class GatewayService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun startForegroundSafe(text: String) {
-        val notification = buildNotification(getString(R.string.notif_title), text)
+    private fun startForegroundSafe(
+        text: String,
+        title: String = getString(R.string.notif_title),
+    ) {
+        val notification = buildNotification(title, text)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
@@ -178,6 +215,8 @@ class GatewayService : Service() {
     }
 
     private fun postNotification(title: String, text: String) {
+        lastTitle = title
+        lastText = text
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(NOTIFICATION_ID, buildNotification(title, text))
     }

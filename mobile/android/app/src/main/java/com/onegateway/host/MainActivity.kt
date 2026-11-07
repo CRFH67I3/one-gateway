@@ -72,6 +72,9 @@ class MainActivity : Activity() {
     /** 通知权限的请求码，只要不和别的请求码重号即可。 */
     private val notificationRequest = 7101
 
+    /** 上一次看到的通知授权状态；由 false 翻成 true 时要补发常驻通知。 */
+    private var notificationAllowed = true
+
     /** 上一次刷外壳颜色时的系统深浅；null 表示还没刷过。 */
     private var appliedDark: Boolean? = null
 
@@ -175,6 +178,42 @@ class MainActivity : Activity() {
             PackageManager.PERMISSION_GRANTED
         if (granted) return
         requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), notificationRequest)
+    }
+
+    /**
+     * 授权回调：补发那张被丢掉的常驻通知。
+     *
+     * `startForeground()` 只在服务启动时发一次通知；如果那一刻还没授权，系统直接
+     * 丢弃且不会复投，用户之后在设置里把「允许通知」打开也看不到任何变化。授权成功
+     * 就让服务就地重挂一次（不重启 Python 进程）。
+     */
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != notificationRequest) return
+        val granted = grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED
+        notificationAllowed = granted
+        if (granted && GatewayService.alive) {
+            GatewayService.send(this, GatewayService.ACTION_REFRESH)
+        }
+    }
+
+    /**
+     * 用户可能是绕去系统设置里开的通知开关（菜单里就有「后台保活设置」），
+     * 回到界面时补一次比对，把漏掉的那张常驻通知挂回去。
+     */
+    private fun syncNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val granted = checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        if (granted == notificationAllowed) return
+        notificationAllowed = granted
+        if (granted && GatewayService.alive) {
+            GatewayService.send(this, GatewayService.ACTION_REFRESH)
+        }
     }
 
     /**
@@ -372,6 +411,7 @@ class MainActivity : Activity() {
         // （Activity 已 stop 的情况下）。这里比一下标记，变了就补刷，避免顶栏
         // 停在旧配色上。
         if (appliedDark != systemDark()) applyShellColors()
+        syncNotificationPermission()
         ui.post(poller)
     }
 

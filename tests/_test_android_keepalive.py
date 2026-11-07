@@ -69,6 +69,51 @@ class NotificationPermissionIsRequested(unittest.TestCase):
                       "只在方法里定义不调用，通知照样是拒的")
 
 
+class NotificationIsRepostedAfterGrant(unittest.TestCase):
+    """第 4 层：授权晚于服务启动时，要把被丢掉的那张通知补回来。
+
+    真机上踩到过：Termux 与自家 App 都是「服务先 `startForeground()`、用户后授权」，
+    那一次通知早被系统按无权通知丢弃，之后不管怎么开开关都不会再出现——进程在跑、
+    通知栏却一直空着。所以授权回调与回到前台时都要就地重挂一次，且不能顺手重启
+    Python 进程。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.svc = read(os.path.join(JAVA, "GatewayService.kt"))
+        cls.act = read(os.path.join(JAVA, "MainActivity.kt"))
+
+    def test_service_exposes_refresh_action(self):
+        self.assertIn("const val ACTION_REFRESH", self.svc,
+                      "没有「只补发通知」的动作，UI 侧只能整个重启服务")
+
+    def test_refresh_only_reposts_then_returns(self):
+        body = re.search(r"if \(intent\?\.action == ACTION_REFRESH\)\s*\{(.*?)\n        \}",
+                         self.svc, re.S)
+        self.assertIsNotNone(body, "onStartCommand 里没有 ACTION_REFRESH 分支")
+        text = body.group(1)
+        self.assertIn("startForegroundSafe(", text, "补发要重新 startForeground，notify 对前台服务不够")
+        self.assertIn("return START_STICKY", text, "补发后要立刻返回，别走到下面的启动逻辑")
+        self.assertNotIn("launch()", text, "补发通知不能顺带重启网关进程")
+
+    def test_refresh_reuses_last_text(self):
+        self.assertRegex(self.svc, r"startForegroundSafe\(\s*lastText",
+                         "补发要用上一次的正文，否则通知会被打回「正在启动」")
+
+    def test_grant_callback_sends_refresh(self):
+        body = re.search(r"override fun onRequestPermissionsResult\(.*?\n    \}", self.act, re.S)
+        self.assertIsNotNone(body, "没有 onRequestPermissionsResult，授权后没人补发")
+        text = body.group(0)
+        self.assertIn("ACTION_REFRESH", text)
+        self.assertIn("GatewayService.alive", text, "服务没起来时发补发动作会白拉一个空服务")
+
+    def test_resume_rechecks_permission(self):
+        body = re.search(r"override fun onResume\(\)\s*\{(.*?)\n    \}", self.act, re.S)
+        self.assertIsNotNone(body, "找不到 onResume")
+        self.assertIn("syncNotificationPermission()", body.group(1),
+                      "用户可能是去系统设置里开的开关，回前台要补一次比对")
+
+
 class KeepAliveEntryExists(unittest.TestCase):
     """第 3 层：把用户送到能开自启动 / 省电策略的地方。"""
 
